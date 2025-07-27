@@ -49,7 +49,7 @@ public class AuthController {
             ResponseCookie responseCookie = ResponseCookie.from("jwt", jwtToken) // static method that starts building the cookie.
                     .httpOnly(true)
                     .secure(true) // https
-                    .sameSite("Lax") // Only send this cookie if the user is actively navigating or making same-site requests.
+                    .sameSite("None") // Only send this cookie if the user is actively navigating or making same-site requests.
                                     // Don’t attach it on malicious hidden POST requests from other sites.
                     .path("/") // Makes the cookie available to all endpoints on your site.
                     .maxAge(Duration.ofMinutes(30))

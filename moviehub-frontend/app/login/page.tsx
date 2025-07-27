@@ -1,6 +1,6 @@
 "use client"
-import {useEffect, useState} from "react";
-
+import React, {useEffect, useState} from "react";
+import { useRouter } from 'next/navigation';
 
 export default function loginPage() {
     const posters = [
@@ -31,6 +31,9 @@ export default function loginPage() {
     ];
     const [currentPosterIndex, setPosterIndex] = useState(0);// 0 here initializes currentPosterIndex
     const [visible, setVisible] = useState(false);
+    const [formData, setFormData] = useState({loginInfo: '', password: ''})
+    const [error, setError]= useState('')
+    const router = useRouter()
     useEffect(() => {
         const interval = setInterval(() => {
             setPosterIndex((prevIndex) =>
@@ -38,6 +41,39 @@ export default function loginPage() {
         }, 5000)
         return () => clearInterval(interval)
     }, []);
+
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault() // prevents page reload when form is submitted
+
+        try {
+            const csrfToken = getCookie("XSRF-TOKEN");
+
+            const res = await fetch("http://localhost:8080/auth/login", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // 'X-XSRF-TOKEN': csrfToken ?? '', // Use '' if csrfToken is null otherwise use csrfToken. ?? is a typescript operator
+                },
+                credentials: 'include', // <- include JWT cookie in response
+                body: JSON.stringify(formData),
+            });
+            if (res.ok) {
+                router.push("/homepage");
+            } else {
+                setError("Invalid login credentials");
+            }
+        } catch (err) {
+            setError("Network error");
+        }
+    }
+
+    function getCookie(nameCookie: String): string | undefined { // returns a cookie string, or undefined if no cookie is present.
+        return document.cookie
+            .split("; ")
+            .find(row => row.startsWith(nameCookie + "="))
+            ?.split("=")[1]
+    }
 
     return (
         <div className="flex min-h-screen overflow-hidden">
@@ -66,7 +102,7 @@ export default function loginPage() {
                             <h1 className="text-3xl font-bold m-0">Log In</h1>
                         </div>
 
-                        <form className="w-full">
+                        <form className="w-full" onSubmit={handleSubmit}>
                             <div className="mb-5 grid gap-6 w-full">
                                 {/* Email Field */}
                                 <div className="mt-9 grid w-full">
@@ -89,10 +125,13 @@ export default function loginPage() {
                                             className="flex h-13 w-full rounded-lg border border-gray-500 bg-transparent pl-10 py-2 text-base transition-colors
                                                        focus-visible:outline-none focus-visible:ring-2 hover:border-gray-300 focus:border-white"
                                             id="emailOrUsername"
+                                            type="text"
                                             placeholder="E-mail / Username"
                                             autoCapitalize="none"
                                             autoComplete="email"
                                             autoCorrect="off"
+                                            value={formData.loginInfo}
+                                            onChange={(e)=> setFormData({...formData, loginInfo: e.target.value})} // copy content from the formData object and change the value of loginInfo. ... is the spread operator.
                                             required
                                         />
                                     </div>
@@ -124,6 +163,8 @@ export default function loginPage() {
                                             placeholder="Password"
                                             autoCapitalize="none"
                                             autoComplete="current-password"
+                                            value={formData.password}
+                                            onChange={(e) => setFormData({...formData, password: e.target.value})}
                                             required
                                         />
                                         {/* Password visibility toggle */}
@@ -157,13 +198,23 @@ export default function loginPage() {
                                             }
                                         </button>
                                     </div>
-                                    <div className="mt-4 flex justify-between items-center mb-2">
-                                        <a
-                                            className="text-md text-gray-400 hover:text-gray-200 transition-colors"
-                                            href="/password-reset"
-                                        >
-                                            Forgot password?
-                                        </a>
+                                    <div className="flex flex-row">
+                                        <div className="mt-4 flex justify-between items-center mb-2">
+                                            <a
+                                                className="text-md text-gray-400 hover:text-gray-200 transition-colors"
+                                                href="/password-reset"
+                                            >
+                                                Forgot password?
+                                            </a>
+                                        </div>
+                                        <div className="pl-38 mt-4 flex justify-between items-center mb-2">
+                                            <a
+                                                className="text-md text-gray-300 hover:text-gray-50 transition-colors"
+                                                href="/register"
+                                            >
+                                                Create an account.
+                                            </a>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -173,6 +224,7 @@ export default function loginPage() {
                                 className="text-black bg-white hover:bg-gray-300 focus:outline-none font-medium rounded-lg text-base w-full py-3.5 text-center transition-colors">
                                 Log In
                             </button>
+                            {error && <p className="text-red-500">{error}</p>}
                         </form>
                     </div>
                 </div>

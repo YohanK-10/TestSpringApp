@@ -27,7 +27,7 @@ public class SecurityConfiguration {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .cors(withDefaults())
+                .cors(withDefaults()) // enables cors in spring when using spring security.
                 .csrf(csrf -> csrf
                         .ignoringRequestMatchers("/auth/login")
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())

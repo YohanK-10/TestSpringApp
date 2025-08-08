@@ -23,7 +23,7 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
     }
 
-    @ExceptionHandler({RefreshTokenNotFoundException.class, ValidationOfRefreshTokenException.class})
+    @ExceptionHandler({Exception.class})
     public ResponseEntity<?> handleRefreshErrors(Exception exception) {
         // If something goes wrong, clear any cookies so that the client
         // doesn’t continue sending an invalid token. The user must re‑authenticate.

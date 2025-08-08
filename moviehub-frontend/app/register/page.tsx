@@ -72,7 +72,7 @@ export default function register() {
             });
 
             if (res.ok) {
-                router.push("/verifyPage");
+                router.push(`/verify?email=${encodeURIComponent(formData.email)}`);
             } else {
                 setError("Invalid credentials");
             }

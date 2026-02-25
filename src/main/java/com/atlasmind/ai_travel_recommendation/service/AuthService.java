@@ -3,22 +3,23 @@ package com.atlasmind.ai_travel_recommendation.service;
 import com.atlasmind.ai_travel_recommendation.dto.LoginUserDto;
 import com.atlasmind.ai_travel_recommendation.dto.RegisterUserDto;
 import com.atlasmind.ai_travel_recommendation.dto.VerifyUserDto;
+import com.atlasmind.ai_travel_recommendation.exceptions.DuplicateResourceException;
+import com.atlasmind.ai_travel_recommendation.exceptions.ResourceNotFoundException;
+import com.atlasmind.ai_travel_recommendation.exceptions.VerificationException;
+import com.atlasmind.ai_travel_recommendation.exceptions.WeakPasswordException;
 import com.atlasmind.ai_travel_recommendation.models.User;
 import com.atlasmind.ai_travel_recommendation.repository.UserRepository;
 import com.atlasmind.ai_travel_recommendation.util.PasswordValidator;
-import jakarta.mail.MessagingException;
+import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.Base64;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -30,8 +31,7 @@ public class AuthService {
 
     public User signUp(RegisterUserDto signUpInfo) {
         if (!PasswordValidator.isStrong(signUpInfo.getPassword())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                              "Password must be at least 8 characters long and contain uppercase, lowercase, number, and symbol.");
+            throw new WeakPasswordException("Password must be at least 8 characters long and contain uppercase, lowercase, number, and symbol.");
         }
         // Optional is a container that may or may not hold a user. Need to unwrap it to check.
         Optional<User> optionalUser1 = userRepository.findByEmail(signUpInfo.getEmail());
@@ -40,17 +40,17 @@ public class AuthService {
             User userByMail = optionalUser1.get();
             User userByUsername = optionalUser2.get();
             if (userByMail.equals(userByUsername)) {
-                if (userByMail.isEnabled()) throw new ResponseStatusException(HttpStatus.CONFLICT, "This email is already registered and verified. Please log in.");
+                if (userByMail.isEnabled()) throw new DuplicateResourceException("This email is already registered and verified. Please log in.");
                 return theLogicSendVerificationEmail(userByMail);
-            } else throw new ResponseStatusException(HttpStatus.CONFLICT, "Username and email are both taken.");
+            } else throw new DuplicateResourceException("Username and email are both taken.");
         } else if (optionalUser1.isPresent()) {
             User userByMail = optionalUser1.get();
-            if (userByMail.isEnabled()) throw new ResponseStatusException(HttpStatus.CONFLICT, "An account with this email already exists!");
+            if (userByMail.isEnabled()) throw new DuplicateResourceException("An account with this email already exists!");
             userByMail.setUsername(signUpInfo.getUsername());
             userByMail.setPassword(passwordEncoder.encode(signUpInfo.getPassword()));
             return theLogicSendVerificationEmail(userByMail);
         } else if (optionalUser2.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken!!");
+            throw new DuplicateResourceException("Username is already taken!");
         } else {
             // Hashes the password.
             User user = new User(signUpInfo.getUsername(), signUpInfo.getEmail(), passwordEncoder.encode(signUpInfo.getPassword()));
@@ -69,7 +69,7 @@ public class AuthService {
     public User authenticate(LoginUserDto loginInfo) {
         User user = userRepository.findByUsername(loginInfo.getLoginInfo())
                 .or(() -> userRepository.findByEmail(loginInfo.getLoginInfo()))
-                .orElseThrow(() -> new RuntimeException("User not found!"));
+                .orElseThrow(() -> new ResourceNotFoundException("User", "login Info", loginInfo.getLoginInfo()));
 
         if (!user.isEnabled()) throw new DisabledException("Account is not verified!!");
         authenticationManager.authenticate(new UsernamePasswordAuthenticationToken( // This extends a class which implements Authentication.
@@ -80,33 +80,34 @@ public class AuthService {
     }
 
     public void verifyUser(VerifyUserDto input) {
-        Optional<User> optionalUser = userRepository.findByEmail(input.getEmail());
-        if (optionalUser.isPresent()) { // Checks if it is not Null
-            User user = optionalUser.get();
-            if (user.getExpirationTimeOfVerificationCode().isBefore(LocalDateTime.now())) {
-                throw new RuntimeException("The verification code is expired!!");
-            }
-            if (user.getVerificationCode().equals(input.getVerificationCode())) {
-                user.setEnable(true);
-                user.setVerificationCode(null);
-                user.setExpirationTimeOfVerificationCode(null);
-                userRepository.save(user);
-            } else {
-                throw new RuntimeException("Invalid verification code!!");
-            }
-        } else throw new RuntimeException("User not found!!");
+        User optionalUser = userRepository.findByUsername(input.getUsername())
+                .orElseThrow(() -> new ResourceNotFoundException("User", "username", input.getUsername()));
+        if (optionalUser.getExpirationTimeOfVerificationCode().isBefore(LocalDateTime.now())) {
+            throw new VerificationException("The verification code is expired!!");
+        }
+        if (optionalUser.getVerificationCode().equals(input.getVerificationCode())) {
+            optionalUser.setEnable(true);
+            optionalUser.setVerificationCode(null);
+            optionalUser.setExpirationTimeOfVerificationCode(null);
+            userRepository.save(optionalUser);
+        } else {
+            throw new VerificationException("Invalid verification code!!");
+        }
     }
+
 
     public void resendVerificationCode(String email) {
         Optional<User> optionalUser = userRepository.findByEmail(email);
         if(optionalUser.isPresent()) {
             User user = optionalUser.get();
-            if (user.isEnabled()) throw new RuntimeException("The user was already verified!!");
+            if (user.isEnabled()) throw new VerificationException("The user was already verified!!");
             user.setVerificationCode(generateVerificationCode());
             user.setExpirationTimeOfVerificationCode(LocalDateTime.now().plusMinutes(5));
             sendVerificationEmail(user);
             userRepository.save(user);
-        } else throw new RuntimeException("User was not found!!");
+        } else {
+            throw new ResourceNotFoundException("User", "email", email);
+        }
     }
 
     public void sendVerificationEmail(User user) {
@@ -139,7 +140,7 @@ public class AuthService {
                 + "</html>";
         try {
             emailService.sendVerificationEmail(user.getEmail(), subject, htmlMessage);
-        } catch (MessagingException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -149,8 +150,9 @@ public class AuthService {
      * @return
      */
     private String generateVerificationCode() {
-        byte[] randomBytes = new byte[32]; // Creates the array
-        new SecureRandom().nextBytes(randomBytes); // Cryptographically strong bytes.
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+        byte[] tokenArray = new byte[4];
+        new SecureRandom().nextBytes(tokenArray);
+        int code = (ByteBuffer.wrap(tokenArray).getInt() & 0x7FFFFFFF) % 900000 + 100000;
+        return String.valueOf(code);
     }
 }

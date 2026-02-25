@@ -9,5 +9,6 @@ import lombok.Setter;
 @AllArgsConstructor
 public class VerifyUserDto {
     private String email;
+    private String username;
     private String verificationCode;
 }

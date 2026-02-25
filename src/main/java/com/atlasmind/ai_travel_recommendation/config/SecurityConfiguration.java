@@ -46,10 +46,14 @@ public class SecurityConfiguration {
         return http.build();
     }
 
+    /**
+     * Clipboard with the rules for cross-origin request.
+     * @return CorsConfigurationSource
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cors = new CorsConfiguration();
-        cors.setAllowedOrigins(List.of("http://localhost:3000","https://yohan.com"));
+        cors.setAllowedOrigins(List.of("http://localhost:3000"));
         cors.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
         cors.setAllowedHeaders(List.of("Content-Type","Authorization","X-XSRF-TOKEN"));
         cors.setAllowCredentials(true);

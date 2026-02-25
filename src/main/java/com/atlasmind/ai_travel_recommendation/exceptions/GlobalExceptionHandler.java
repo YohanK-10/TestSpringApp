@@ -1,32 +1,112 @@
 package com.atlasmind.ai_travel_recommendation.exceptions;
 
+import com.atlasmind.ai_travel_recommendation.dto.response.ErrorResponse;
+import java.time.LocalDateTime;
+import lombok.Builder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.View;
 
 /**
  * Hey Spring, if any controller throws an exception — I want to decide how to handle it here.
  */
 @RestControllerAdvice
+@Builder
 public class GlobalExceptionHandler {
+    private final View error;
 
+    // ─── 400 BAD REQUEST ─────────────────────────────────────────────
+    // Client sent something wrong (bad input, expired code, weak password)
+
+    @ExceptionHandler(VerificationException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationException(VerificationException e) {
+        return buildResponse(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    @ExceptionHandler(WeakPasswordException.class)
+    public ResponseEntity<ErrorResponse> handleWeakPasswordException(WeakPasswordException ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    // ─── 401 UNAUTHORIZED ────────────────────────────────────────────
+    // Authentication failed (bad password, invalid/expired token)
+
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<ErrorResponse> badCredentials(BadCredentialsException ex) {
+        return buildResponse(HttpStatus.UNAUTHORIZED, ex.getMessage());
+    }
     @ExceptionHandler(RefreshTokenNotFoundException.class)
     public ResponseEntity<?> handleRefreshTokenNotFound(RefreshTokenNotFoundException ex) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
+        return buildResponseWithClearedCookies(HttpStatus.UNAUTHORIZED, ex.getMessage());
     }
 
     @ExceptionHandler(ValidationOfRefreshTokenException.class)
     public ResponseEntity<?> handleInvalidToken(ValidationOfRefreshTokenException ex) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
+        return buildResponseWithClearedCookies(HttpStatus.UNAUTHORIZED, ex.getMessage());
     }
 
-    @ExceptionHandler({Exception.class})
-    public ResponseEntity<?> handleRefreshErrors(Exception exception) {
+    // ─── 403 FORBIDDEN ───────────────────────────────────────────────
+    // User is authenticated but not allowed (e.g., account not verified)
+
+    @ExceptionHandler(DisabledException.class)
+    public ResponseEntity<ErrorResponse> handleDisabledException(DisabledException ex) {
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    // ─── 404 NOT FOUND ───────────────────────────────────────────────
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(ResourceNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(UsernameNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUsernameNotFoundException(UsernameNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    // ─── 409 CONFLICT ────────────────────────────────────────────────
+
+    @ExceptionHandler(DuplicateResourceException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateResource(DuplicateResourceException ex) {
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    // ─── 500 INTERNAL SERVER ERROR (catch-all) ───────────────────────
+    // Something unexpected went wrong on the server.
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleExceptions(Exception ex) {
+        // In production, you would log the full stack trace here
+        // but NOT expose it to the client (security risk).
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
+                             "An unexpected error occurred. Please try again later.");
+    }
+    private ResponseEntity<ErrorResponse> buildResponse(HttpStatus status, String errorMessage) {
+        ErrorResponse response = ErrorResponse.builder()
+                .status(status.value())
+                .timeStamp(LocalDateTime.now())
+                .error(status.getReasonPhrase())
+                .message(errorMessage)
+                .build();
+        return ResponseEntity.status(status).body(response);
+    }
+
+    public ResponseEntity<ErrorResponse> buildResponseWithClearedCookies(HttpStatus status, String errorMessage) {
         // If something goes wrong, clear any cookies so that the client
         // doesn’t continue sending an invalid token. The user must re‑authenticate.
+        ErrorResponse response = ErrorResponse.builder()
+                .status(status.value())
+                .error(status.getReasonPhrase())
+                .message(errorMessage)
+                .timeStamp(LocalDateTime.now())
+                .build();
         ResponseCookie clearJwt = ResponseCookie.from("jwt", "")
                 .httpOnly(true)
                 .secure(true)
@@ -41,8 +121,8 @@ public class GlobalExceptionHandler {
                 .path("/")
                 .maxAge(0)
                 .build();
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+        return ResponseEntity.status(status)
                 .header(HttpHeaders.SET_COOKIE, clearJwt.toString(), clearRefresh.toString())
-                .body(exception.getMessage());
+                .body(response);
     }
 }

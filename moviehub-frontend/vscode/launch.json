@@ -1,0 +1,13 @@
+{
+   "version": "0.2.0",
+   "configurations": [
+     {
+       "name": "Debug Register Page",
+       "type": "chrome",
+       "request": "launch",
+       "url": "http://localhost:3000/register",
+       "webRoot": "${workspaceFolder}",
+       "sourceMaps": true
+     }
+   ]
+ }

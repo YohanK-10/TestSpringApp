@@ -4,6 +4,7 @@ import com.atlasmind.ai_travel_recommendation.dto.EmailOnlyDto;
 import com.atlasmind.ai_travel_recommendation.dto.LoginUserDto;
 import com.atlasmind.ai_travel_recommendation.dto.RegisterUserDto;
 import com.atlasmind.ai_travel_recommendation.dto.VerifyUserDto;
+import com.atlasmind.ai_travel_recommendation.dto.response.UserResponseDto;
 import com.atlasmind.ai_travel_recommendation.models.RefreshToken;
 import com.atlasmind.ai_travel_recommendation.models.User;
 import com.atlasmind.ai_travel_recommendation.service.AuthService;
@@ -19,14 +20,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.DisabledException;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/auth")
@@ -38,9 +35,9 @@ public class AuthController {
     // ResponseEntity is the HTTP Response Body.
     // Spring deserializes the incoming JSON to the RegisterDto Java object, this is done by @RequestBody.
     @PostMapping("/register")
-    public ResponseEntity<User> register(@RequestBody RegisterUserDto registerUserDto) {
+    public ResponseEntity<UserResponseDto> register(@RequestBody RegisterUserDto registerUserDto) {
         User registerUser = authenticationService.signUp(registerUserDto);
-        return ResponseEntity.ok(registerUser);
+        return ResponseEntity.status(HttpStatus.CREATED).body(UserResponseDto.fromUser(registerUser));
     }
 
     // No. That’s the beauty of using HttpOnly cookies. The browser automatically stores the Set-Cookie header.
@@ -48,58 +45,43 @@ public class AuthController {
     // You do not need to store or manually attach the JWT in your frontend code.
     @PostMapping("/login")
     public ResponseEntity<?> authenticate(@RequestBody LoginUserDto loginUserDto) throws NoSuchAlgorithmException, InvalidKeySpecException {
-        try {
-            User loggedUser = authenticationService.authenticate(loginUserDto);
-            String jwtToken = jwtService.generateToken(loggedUser);
-            RefreshToken refreshToken = refreshTokenService.createRefreshToken(loggedUser);
-            // Build cookies for the access and refresh tokens.  The HttpOnly flag
-            // prevents JavaScript from accessing them and the Secure flag ensures
-            // they are only sent over HTTPS.  We set SameSite=None to allow
-            // cross‑site requests from your front‑end domain, but you can use Lax
-            // if both front‑end and back‑end share the same domain.
-            ResponseCookie responseCookie = ResponseCookie.from("jwt", jwtToken) // static method that starts building the cookie.
-                    .httpOnly(true)
-                    .secure(true) // https
-                    .sameSite("None") // Only send this cookie if the user is actively navigating or making same-site requests.
-                                    // Don’t attach it on malicious hidden POST requests from other sites.
-                    .path("/") // Makes the cookie available to all endpoints on your site.
-                    .maxAge(Duration.ofMinutes(30))
-                    .build();
-            ResponseCookie responseCookieToken = ResponseCookie.from("refreshToken", refreshToken.getToken())
-                    .httpOnly(true)
-                    .sameSite("None")
-                    .path("/")
-                    .maxAge(Duration.ofMillis(refreshTokenService.getRefreshExpirationTimeMs()))
-                    .build();
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, responseCookie.toString(), responseCookieToken.toString())
-                    .body("Login successful!!");
-        } catch (BadCredentialsException | UsernameNotFoundException ex) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid credentials");
-        } catch (DisabledException ex) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Account not verified");
-        }
-
+        User loggedUser = authenticationService.authenticate(loginUserDto);
+        String jwtToken = jwtService.generateToken(loggedUser);
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(loggedUser);
+        // Build cookies for the access and refresh tokens.  The HttpOnly flag
+        // prevents JavaScript from accessing them and the Secure flag ensures
+        // they are only sent over HTTPS.  We set SameSite=None to allow
+        // cross‑site requests from your front‑end domain, but you can use Lax
+        // if both front‑end and back‑end share the same domain.
+        ResponseCookie responseCookie = ResponseCookie.from("jwt", jwtToken) // static method that starts building the cookie.
+                .httpOnly(true)
+                .secure(true) // https
+                .sameSite("None") // Only send this cookie if the user is actively navigating or making same-site requests.
+                // Don’t attach it on malicious hidden POST requests from other sites.
+                .path("/") // Makes the cookie available to all endpoints on your site.
+                .maxAge(Duration.ofMinutes(30))
+                .build();
+        ResponseCookie responseCookieToken = ResponseCookie.from("refreshToken", refreshToken.getToken())
+                .httpOnly(true)
+                .sameSite("None")
+                .path("/")
+                .maxAge(Duration.ofMillis(refreshTokenService.getRefreshExpirationTimeMs()))
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, responseCookie.toString(), responseCookieToken.toString())
+                .body("Login successful!!");
     }
 
     @PostMapping("/verify")
     public ResponseEntity<?> verifyUser(@RequestBody VerifyUserDto verifyUserDto) {
-        try {
-            authenticationService.verifyUser(verifyUserDto);
-            return ResponseEntity.ok("Account is verified!!");
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
+        authenticationService.verifyUser(verifyUserDto);
+        return ResponseEntity.ok("Account is verified!!");
     }
 
     @PostMapping("/resend")
     public ResponseEntity<?> resendVerify(@RequestBody EmailOnlyDto emailOnlyDto) {
-        try {
-            authenticationService.resendVerificationCode(emailOnlyDto.getEmail());
-            return ResponseEntity.ok("Verification code resent successfully!");
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
+        authenticationService.resendVerificationCode(emailOnlyDto.getEmail());
+        return ResponseEntity.ok("Verification code resent successfully!");
     }
 
     @PostMapping("/logout")
@@ -137,7 +119,7 @@ public class AuthController {
      * expired, the request will be rejected and the user must log in again.
      */
     @PostMapping("/refresh")
-    public ResponseEntity<?> refresh(HttpServletRequest request) {
+    public ResponseEntity<?> refresh(HttpServletRequest request) throws NoSuchAlgorithmException, InvalidKeySpecException {
         String refreshTokenString = null;
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
@@ -152,7 +134,6 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Refresh token is missing");
         }
 
-        try {
             // Look up the refresh token in the database and verify it hasn’t
             // expired or been revoked.  If invalid, an exception will be thrown.
             RefreshToken existingToken = refreshTokenService.findByToken(refreshTokenString);
@@ -180,8 +161,5 @@ public class AuthController {
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, jwtCookie.toString(), refreshCookie.toString())
                     .body("Token refreshed");
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Server configuration error: Cryptographic operation failed", e);
-        }
     }
 }

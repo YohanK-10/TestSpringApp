@@ -1,12 +1,13 @@
 package com.atlasmind.ai_travel_recommendation.models;
 
 import jakarta.persistence.*;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Getter
 @Setter
@@ -41,6 +42,17 @@ public class Movie {
     private Integer runtime;
     private Double movieRating;
     private Double popularity;
+
+    /**
+     * PostgreSQL generated tsvector column for full-text search.
+     * Combines movie_title + overview, stemmed with English rules.
+     * insertable/updatable = false because this is a GENERATED column —
+     * PostgreSQL computes it automatically. Hibernate must not try to
+     * write to it or the INSERT/UPDATE will fail.
+     */
+    @Column(name = "search_vector", insertable = false, updatable = false,
+            columnDefinition = "tsvector")
+    private String searchVector;
 
     @PrePersist
     protected void onCreate() {

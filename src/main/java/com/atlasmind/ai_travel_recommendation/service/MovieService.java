@@ -267,4 +267,33 @@ public class MovieService {
 
         return MovieResponseDto.fromMovie(movie, genreNames);
     }
+
+    // ─── LOCAL FULL-TEXT SEARCH ───────────────────────────────────
+
+    /**
+     * Search movies in our LOCAL database using PostgreSQL full-text search.
+     * This searches movies we've already cached from TMDB.
+     *
+     * Why have both local search AND TMDB search?
+     * - TMDB search: complete catalog (millions of movies), but requires network call
+     * - Local search: only movies we've cached, but instant (GIN-indexed, no network)
+     *
+     * The local search is useful for:
+     * 1. Autocomplete/suggestions (needs to be fast)
+     * 2. Fallback when TMDB is down
+     * 3. Searching with ranking by relevance (TMDB doesn't expose its ranking)
+     */
+    @Transactional(readOnly = true)
+    public List<MovieResponseDto> searchLocal(String query, int page, int size) {
+        int offset = (page - 1) * size;
+        List<Movie> movies = movieRepository.searchByFullText(query, size, offset);
+
+        return movies.stream().map(movie -> {
+            List<String> genreNames = movieGenreRepository.findByMovieId(movie.getId())
+                    .stream()
+                    .map(mg -> mg.getGenre().getName())
+                    .toList();
+            return MovieResponseDto.fromMovie(movie, genreNames);
+        }).toList();
+    }
 }

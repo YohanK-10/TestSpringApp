@@ -112,4 +112,23 @@ public class MovieController {
 
         return ResponseEntity.ok(genres);
     }
+
+    /**
+     * GET /api/movies/local-search?query=dark&page=1&size=10
+     *
+     * Search movies in our LOCAL PostgreSQL database using full-text search.
+     * Unlike /search (which calls TMDB), this searches only movies we've
+     * already cached — but it's faster and works when TMDB is down.
+     *
+     * Results are ranked by relevance using ts_rank().
+     */
+    @GetMapping("/local-search")
+    public ResponseEntity<List<MovieResponseDto>> searchLocal(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        List<MovieResponseDto> results = movieService.searchLocal(query, page, size);
+        return ResponseEntity.ok(results);
+    }
 }

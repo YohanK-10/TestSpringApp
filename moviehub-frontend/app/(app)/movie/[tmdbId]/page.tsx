@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getMovieDetails,
@@ -17,6 +17,7 @@ export default function MovieDetailPage() {
   const { tmdbId } = useParams<{ tmdbId: string }>();
   const router = useRouter();
   const id = Number(tmdbId);
+  const loadedMovieIdRef = useRef<number | null>(null);
 
   const [movie, setMovie] = useState<MovieResponse | null>(null);
   const [reviews, setReviews] = useState<ReviewResponse[]>([]);
@@ -37,13 +38,30 @@ export default function MovieDetailPage() {
 
   useEffect(() => {
     if (!id) return;
+    let active = true;
     setLoading(true);
     Promise.allSettled([getMovieDetails(id), getReviewsByMovie(id)])
       .then(([movieResult, reviewsResult]) => {
-        setMovie(movieResult.status === "fulfilled" ? movieResult.value : null);
+        if (!active) return;
+
+        if (movieResult.status === "fulfilled") {
+          loadedMovieIdRef.current = id;
+          setMovie(movieResult.value);
+        } else if (loadedMovieIdRef.current !== id) {
+          setMovie(null);
+        }
+
         setReviews(reviewsResult.status === "fulfilled" ? reviewsResult.value : []);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   const handleAddToWatchlist = async (status: WatchlistStatus) => {

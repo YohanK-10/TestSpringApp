@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -204,8 +205,9 @@ public class MovieService {
      * The simple approach is correct for this scale.
      */
     private void updateGenreMappings(Movie movie, List<MovieDetailDto.Genre> tmdbGenres) {
-        // Delete old mappings
+        // Delete old mappings first and flush so re-inserts don't race stale rows.
         movieGenreRepository.deleteByMovieId(movie.getId());
+        movieGenreRepository.flush();
 
         // Insert new mappings
         List<Integer> tmdbGenreIds = tmdbGenres.stream()
@@ -251,8 +253,7 @@ public class MovieService {
      * The key is the tmdbId — each movie gets its own cache entry.
      * Spring builds the Redis key as: "movieDetails::27205"
      */
-    @Cacheable(value = "movieDetails", key = "#tmdbId")
-    @Transactional(readOnly = true)
+    @Transactional
     public MovieResponseDto getMovieDetailsDto(Integer tmdbId) {
         Movie movie = getMovieByTmdbId(tmdbId);
 
@@ -260,10 +261,12 @@ public class MovieService {
             return null;
         }
 
-        List<String> genreNames = movieGenreRepository.findByMovieId(movie.getId())
-                .stream()
-                .map(mg -> mg.getGenre().getName())
-                .toList();
+        List<String> genreNames = new ArrayList<>(
+                movieGenreRepository.findByMovieId(movie.getId())
+                        .stream()
+                        .map(mg -> mg.getGenre().getName())
+                        .toList()
+        );
 
         return MovieResponseDto.fromMovie(movie, genreNames);
     }

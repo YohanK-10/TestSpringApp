@@ -2,6 +2,7 @@ package com.atlasmind.ai_travel_recommendation.exceptions;
 
 import com.atlasmind.ai_travel_recommendation.dto.response.ErrorResponse;
 import lombok.Builder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -21,6 +22,7 @@ import java.time.LocalDateTime;
  */
 @RestControllerAdvice
 @Builder
+@Slf4j
 public class GlobalExceptionHandler {
     private final View error;
 
@@ -95,8 +97,7 @@ public class GlobalExceptionHandler {
     // Something unexpected went wrong on the server.
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleExceptions(Exception ex) {
-        // In production, you would log the full stack trace here
-        // but NOT expose it to the client (security risk).
+        log.error("Unhandled exception while processing request", ex);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
                              "An unexpected error occurred. Please try again later.");
     }

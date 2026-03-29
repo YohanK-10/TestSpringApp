@@ -1,9 +1,12 @@
+/* eslint-disable @next/next/no-img-element */
+
 "use client"
 
 import React, {useEffect, useState} from "react";
 import {useRouter} from "next/navigation";
+import { getErrorMessage, register } from "@/lib/api";
 
-export default function register() {
+export default function Register() {
     const posters = [
         {
             title: "Interstellar",
@@ -47,7 +50,7 @@ export default function register() {
             setPosterIndex((prevIndex) => (prevIndex + 1) % posters.length);
         }, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [posters.length]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -64,20 +67,10 @@ export default function register() {
                 return; // Prevent submission if errors exist
             }
 
-            const res = await fetch("http://localhost:8080/auth/register", {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(formData),
-            });
-
-            if (res.ok) {
-                router.push(`/verify?email=${encodeURIComponent(formData.email)}`);
-            } else {
-                setError("Invalid credentials");
-            }
+            await register(formData.email, formData.username, formData.password);
+            router.push(`/verify?email=${encodeURIComponent(formData.email)}`);
         } catch (err) {
-            setError("Network error");
+            setError(getErrorMessage(err, "Registration failed. Please try again."));
         }
     };
 
@@ -117,13 +110,6 @@ export default function register() {
         if (!emailAddress) return ""
         if (!emailAddress.includes("@gmail.com")) return "Invalid email address. Missing @gmail.com."
         else return "";
-    }
-
-    function getCookie (name: String): string | undefined {
-        return document.cookie
-            .split(";")
-            .find(row => row.startsWith(name + "="))
-            ?.split("=")[1]
     }
 
     return (

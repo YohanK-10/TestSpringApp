@@ -38,6 +38,7 @@ public class SecurityConfiguration {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/api/health").permitAll()
                         .requestMatchers("/api/test/**").permitAll()
                         .requestMatchers("/api/movies/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/reviews/**").permitAll()
@@ -59,7 +60,12 @@ public class SecurityConfiguration {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cors = new CorsConfiguration();
-        cors.setAllowedOrigins(List.of("http://localhost:3000"));
+        // Next.js may boot on 3000, 3001, or another local port if the default is busy.
+        // Using origin patterns keeps local dev working without reopening CORS too broadly.
+        cors.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*"
+        ));
         cors.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
         cors.setAllowedHeaders(List.of("Content-Type","Authorization","X-XSRF-TOKEN"));
         cors.setAllowCredentials(true);

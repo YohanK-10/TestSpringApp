@@ -2,6 +2,7 @@
 
 import React, {useEffect, useState} from "react";
 import {useRouter} from "next/navigation";
+import { getErrorMessage, resendVerificationCode, verifyEmail } from "@/lib/api";
 
 export default function Verify() { // 🔑 keep the name Pascal-cased
 
@@ -25,23 +26,11 @@ export default function Verify() { // 🔑 keep the name Pascal-cased
     const submitCode = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const res = await fetch("http://localhost:8080/auth/verify", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                    email,
-                    verificationCode: verificationData.verificationCode,
-                }),
-            });
-            if (res.ok) {
-                router.push("/login");
-            } else {
-                const errorText = await res.text();
-                setError(errorText || "Verification failed! The code you entered is incorrect");
-            }
-        } catch {
-            setError("Network error");
+            setError("");
+            await verifyEmail(email, verificationData.verificationCode);
+            router.push("/login");
+        } catch (err) {
+            setError(getErrorMessage(err, "Verification failed! The code you entered is incorrect"));
         }
     };
 
@@ -49,22 +38,12 @@ export default function Verify() { // 🔑 keep the name Pascal-cased
         if (!email || cooldown > 0) return;
 
         try {
-            const res = await fetch ("http://localhost:8080/auth/resend", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ email }),
-            })
-
-            if (res.ok) {
-                setMessage({ text: "Verification code resent!", ok: true });
-                setCooldown(30); // 60-second cool-down
-            } else {
-                const err = await res.text();
-                setMessage({ text: err || "Could not resend code.", ok: false });
-            }
-        } catch {
-            setMessage({ text: "Network error", ok: false });
+            setMessage(null);
+            await resendVerificationCode(email);
+            setMessage({ text: "Verification code resent!", ok: true });
+            setCooldown(30);
+        } catch (err) {
+            setMessage({ text: getErrorMessage(err, "Could not resend code."), ok: false });
         }
     }
 
@@ -139,7 +118,7 @@ export default function Verify() { // 🔑 keep the name Pascal-cased
                 </button>
 
                 <div className="text-center text-sm">
-                    <span className="text-gray-400">Didn't receive the code?</span>
+                    <span className="text-gray-400">Didn&apos;t receive the code?</span>
                     <button
                         type="button"
                         onClick={handleResend}

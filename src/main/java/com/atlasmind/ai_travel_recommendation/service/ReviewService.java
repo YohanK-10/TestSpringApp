@@ -72,9 +72,11 @@ public class ReviewService {
      */
     @Transactional(readOnly = true)
     public List<ReviewResponseDto> getReviewsByMovie(Integer tmdbId) {
-        Movie movie = movieRepository.findByTmdbId(tmdbId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Movie", "tmdbId", tmdbId.toString()));
+        Movie movie = movieRepository.findByTmdbId(tmdbId).orElse(null);
+
+        if (movie == null) {
+            return List.of();
+        }
 
         return reviewRepository.findByMovieIdWithDetails(movie.getId())
                 .stream()

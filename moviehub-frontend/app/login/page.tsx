@@ -1,8 +1,11 @@
+/* eslint-disable @next/next/no-img-element */
+
 "use client"
 import React, {useEffect, useState} from "react";
 import { useRouter } from 'next/navigation';
+import {login} from "@/lib/api";
 
-export default function loginPage() {
+export default function LoginPage() {
     const posters = [
         {
             title: "Interstellar",
@@ -40,7 +43,7 @@ export default function loginPage() {
                 (prevIndex + 1) % posters.length);
         }, 5000)
         return () => clearInterval(interval)
-    }, []);
+    }, [posters.length]);
 
     useEffect(() => {
         setError('')
@@ -52,32 +55,12 @@ export default function loginPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault() // prevents page reload when form is submitted
-
         try {
-            const res = await fetch("http://localhost:8080/auth/login", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    // 'X-XSRF-TOKEN': csrfToken ?? '', // Use '' if csrfToken is null otherwise use csrfToken. ?? is a typescript operator
-                },
-                credentials: 'include', // <- include JWT cookie in response
-                body: JSON.stringify(formData),
-            });
-            if (res.ok) {
-                router.push("/homepage");
-            } else {
-                setError("Invalid login credentials. The username and password you entered is not valid.");
-            }
-        } catch (err) {
-            setError("Network error");
+            await login(formData.loginInfo, formData.password);
+            router.push("/homepage")
+        } catch {
+            setError("Invalid login credentials. The username and password you entered is not valid.");
         }
-    }
-
-    function getCookie(nameCookie: String): string | undefined { // returns a cookie string, or undefined if no cookie is present.
-        return document.cookie
-            .split("; ")
-            .find(row => row.startsWith(nameCookie + "="))
-            ?.split("=")[1]
     }
 
     return (

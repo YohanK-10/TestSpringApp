@@ -1,194 +1,347 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import FeedbackBanner from "@/components/FeedbackBanner";
+import RemoteImage from "@/components/RemoteImage";
+import StatusPanel from "@/components/StatusPanel";
+import { WatchlistSkeleton } from "@/components/Skeletons";
 import {
+  ApiError,
+  getErrorMessage,
   getWatchlist,
-  updateWatchlistStatus,
   removeFromWatchlist,
+  updateWatchlistStatus,
 } from "@/lib/api";
-import { posterUrl } from "@/lib/types";
-import type { WatchlistResponse, WatchlistStatus } from "@/lib/types";
+import {
+  POSTER_PLACEHOLDER,
+  posterUrl,
+  type WatchlistResponse,
+  type WatchlistStatus,
+} from "@/lib/types";
 
 const TABS: { label: string; value: WatchlistStatus | "ALL" }[] = [
   { label: "All", value: "ALL" },
-  { label: "Plan to Watch", value: "PLAN_TO_WATCH" },
+  { label: "Plan to watch", value: "PLAN_TO_WATCH" },
   { label: "Watching", value: "WATCHING" },
   { label: "Watched", value: "WATCHED" },
 ];
 
 const STATUS_OPTIONS: { label: string; value: WatchlistStatus }[] = [
-  { label: "Plan to Watch", value: "PLAN_TO_WATCH" },
+  { label: "Plan to watch", value: "PLAN_TO_WATCH" },
   { label: "Watching", value: "WATCHING" },
   { label: "Watched", value: "WATCHED" },
 ];
 
 const STATUS_COLORS: Record<WatchlistStatus, string> = {
-  PLAN_TO_WATCH: "bg-blue-500/20 text-blue-400",
-  WATCHING: "bg-amber-500/20 text-amber-400",
-  WATCHED: "bg-emerald-500/20 text-emerald-400",
+  PLAN_TO_WATCH: "border-blue-400/18 bg-blue-500/10 text-blue-100",
+  WATCHING: "border-amber-400/18 bg-amber-500/10 text-amber-100",
+  WATCHED: "border-emerald-400/18 bg-emerald-500/10 text-emerald-100",
 };
+
+interface FeedbackState {
+  tone: "success" | "error" | "info";
+  title: string;
+  message: string;
+}
+
+function getWatchlistErrorCopy(error: unknown) {
+  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    return {
+      title: "Sign in to view your watchlist",
+      description:
+        "The watchlist endpoint requires an authenticated user. Log in again and then reopen this page.",
+      actionLabel: "Go to login",
+      action: "/login",
+    };
+  }
+
+  if (error instanceof ApiError && error.kind === "network") {
+    return {
+      title: "Watchlist can't reach the backend",
+      description:
+        "The frontend could not connect to the API, so your watchlist never loaded. Make sure the backend is running and try again.",
+      actionLabel: "Retry",
+      action: "retry",
+    };
+  }
+
+  return {
+    title: "We couldn't load your watchlist",
+    description:
+      "The request completed with an unexpected error. Retry the request or head back to the homepage.",
+    actionLabel: "Retry",
+    action: "retry",
+  };
+}
 
 export default function WatchlistPage() {
   const [items, setItems] = useState<WatchlistResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<WatchlistStatus | "ALL">("ALL");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  const [pendingItemId, setPendingItemId] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
+  const loadWatchlist = async () => {
     setLoading(true);
-    getWatchlist()
-      .then(setItems)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+    setError(null);
+
+    try {
+      const data = await getWatchlist();
+      setItems(data);
+    } catch (loadError) {
+      setItems([]);
+      setError(loadError);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadWatchlist();
   }, []);
 
-  const filtered = activeTab === "ALL" ? items : items.filter((i) => i.status === activeTab);
+  useEffect(() => {
+    if (!feedback) return;
+    const id = window.setTimeout(() => setFeedback(null), 4200);
+    return () => window.clearTimeout(id);
+  }, [feedback]);
+
+  const filtered = useMemo(
+    () => (activeTab === "ALL" ? items : items.filter((item) => item.status === activeTab)),
+    [activeTab, items]
+  );
 
   const handleStatusChange = async (id: number, status: WatchlistStatus) => {
+    setPendingItemId(id);
+
     try {
       const updated = await updateWatchlistStatus(id, status);
-      setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
-    } catch {
-      // ignore
+      setItems((current) => current.map((item) => (item.id === id ? updated : item)));
+      setFeedback({
+        tone: "success",
+        title: "Watchlist updated",
+        message: `This movie is now marked as ${STATUS_OPTIONS.find((option) => option.value === status)?.label?.toLowerCase()}.`,
+      });
+    } catch (updateError) {
+      setFeedback({
+        tone: "error",
+        title: "Status update failed",
+        message: getErrorMessage(updateError, "The watchlist status could not be updated."),
+      });
+    } finally {
+      setPendingItemId(null);
     }
   };
 
   const handleRemove = async (id: number) => {
+    setPendingItemId(id);
+
     try {
       await removeFromWatchlist(id);
-      setItems((prev) => prev.filter((i) => i.id !== id));
-    } catch {
-      // ignore
+      setItems((current) => current.filter((item) => item.id !== id));
+      setFeedback({
+        tone: "success",
+        title: "Removed from watchlist",
+        message: "The movie has been removed from your saved titles.",
+      });
+    } catch (removeError) {
+      setFeedback({
+        tone: "error",
+        title: "Remove failed",
+        message: getErrorMessage(removeError, "The movie could not be removed from your watchlist."),
+      });
+    } finally {
+      setPendingItemId(null);
     }
   };
 
   const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <WatchlistSkeleton />;
   }
 
   if (error) {
+    const copy = getWatchlistErrorCopy(error);
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-red-400 mb-4">{error}</p>
-        <button onClick={() => router.push("/login")} className="text-amber-500 hover:underline">
-          Log in to view your watchlist
-        </button>
+      <div className="app-page">
+        <StatusPanel
+          title={copy.title}
+          description={copy.description}
+          tone="error"
+          actionLabel={copy.actionLabel}
+          onAction={() => {
+            if (copy.action === "retry") {
+              void loadWatchlist();
+            } else {
+              router.push(copy.action);
+            }
+          }}
+          secondaryLabel="Browse homepage"
+          onSecondaryAction={() => router.push("/homepage")}
+        />
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold mb-2">My Watchlist</h1>
-      <p className="text-gray-400 text-sm mb-8">{items.length} movies</p>
+    <div className="app-page space-y-8">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.26em] text-amber-300/85">Watchlist</p>
+          <h1 className="app-section-title mt-2">Your saved movies</h1>
+          <p className="app-copy-muted mt-2 text-sm">
+            Track what you plan to watch, what you are currently watching, and what you have already finished.
+          </p>
+        </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
+        <div className="rounded-[1.2rem] border border-slate-700/35 bg-white/5 px-4 py-3 text-sm text-slate-300">
+          {items.length} movie{items.length === 1 ? "" : "s"} saved
+        </div>
+      </div>
+
+      {feedback && (
+        <FeedbackBanner
+          tone={feedback.tone}
+          title={feedback.title}
+          message={feedback.message}
+          onDismiss={() => setFeedback(null)}
+        />
+      )}
+
+      <div className="flex flex-wrap gap-3">
         {TABS.map((tab) => {
           const count =
-            tab.value === "ALL" ? items.length : items.filter((i) => i.status === tab.value).length;
+            tab.value === "ALL"
+              ? items.length
+              : items.filter((item) => item.status === tab.value).length;
+
           return (
             <button
               key={tab.value}
+              type="button"
               onClick={() => setActiveTab(tab.value)}
-              className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium transition ${
+              className={`rounded-full px-4 py-2.5 text-sm font-semibold transition ${
                 activeTab === tab.value
-                  ? "bg-amber-500 text-black"
-                  : "bg-white/10 text-gray-300 hover:bg-white/20"
+                  ? "bg-amber-400/14 text-amber-100"
+                  : "border border-slate-700/35 bg-white/4 text-slate-300 hover:bg-white/8 hover:text-white"
               }`}
             >
               {tab.label}
-              <span className="ml-1.5 opacity-70">({count})</span>
+              <span className="ml-1.5 text-slate-400">({count})</span>
             </button>
           );
         })}
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="text-center py-20">
-          <p className="text-gray-500 mb-4">No movies in this list yet.</p>
-          <button
-            onClick={() => router.push("/homepage")}
-            className="text-amber-500 hover:underline"
-          >
-            Discover movies to add
-          </button>
-        </div>
+      {items.length === 0 ? (
+        <StatusPanel
+          title="Your watchlist is empty"
+          description="Start adding movies from the homepage or search results so you can track what to watch next."
+          actionLabel="Discover movies"
+          onAction={() => router.push("/homepage")}
+          secondaryLabel="Search titles"
+          onSecondaryAction={() => router.push("/search")}
+        />
+      ) : filtered.length === 0 ? (
+        <StatusPanel
+          title="Nothing in this section yet"
+          description={`You do have saved movies, but none of them are marked as ${TABS.find((tab) => tab.value === activeTab)?.label.toLowerCase()}.`}
+          actionLabel="Show all"
+          onAction={() => setActiveTab("ALL")}
+        />
       ) : (
         <div className="space-y-4">
-          {filtered.map((item) => (
-            <div
-              key={item.id}
-              className="flex gap-4 bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/[0.07] transition"
-            >
-              {/* Poster */}
-              <button
-                onClick={() => router.push(`/movie/${item.tmdbId}`)}
-                className="shrink-0"
-              >
-                <img
-                  src={posterUrl(item.posterPath, "w185")}
-                  alt={item.movieTitle}
-                  className="w-20 h-30 object-cover rounded-lg"
-                  loading="lazy"
-                />
-              </button>
+          {filtered.map((item) => {
+            const isPending = pendingItemId === item.id;
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
+            return (
+              <article
+                key={item.id}
+                className="app-surface app-card grid gap-5 p-4 sm:grid-cols-[110px,1fr] sm:p-5"
+              >
                 <button
+                  type="button"
                   onClick={() => router.push(`/movie/${item.tmdbId}`)}
-                  className="text-left"
+                  className="mx-auto w-[110px] sm:mx-0"
                 >
-                  <h3 className="font-semibold text-white hover:text-amber-500 transition line-clamp-1">
-                    {item.movieTitle}
-                  </h3>
+                  <RemoteImage
+                    src={posterUrl(item.posterPath, "w185")}
+                    fallbackSrc={POSTER_PLACEHOLDER}
+                    alt={item.movieTitle}
+                    className="aspect-[2/3] w-full rounded-[1rem] object-cover"
+                    loading="lazy"
+                  />
                 </button>
 
-                <div className="flex items-center gap-3 mt-2">
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[item.status]}`}
-                  >
-                    {STATUS_OPTIONS.find((s) => s.value === item.status)?.label}
-                  </span>
-                  <span className="text-xs text-gray-500">Added {formatDate(item.addedAt)}</span>
-                </div>
+                <div className="min-w-0 space-y-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/movie/${item.tmdbId}`)}
+                        className="text-left"
+                      >
+                        <h2 className="text-lg font-semibold text-white transition hover:text-amber-200">
+                          {item.movieTitle}
+                        </h2>
+                      </button>
+                      <p className="mt-2 text-sm text-slate-400">
+                        Added on {formatDate(item.addedAt)}
+                      </p>
+                    </div>
 
-                {/* Status change + remove */}
-                <div className="flex items-center gap-2 mt-3">
-                  <select
-                    value={item.status}
-                    onChange={(e) => handleStatusChange(item.id, e.target.value as WatchlistStatus)}
-                    className="bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  >
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s.value} value={s.value} className="bg-gray-900">
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => handleRemove(item.id)}
-                    className="text-gray-500 hover:text-red-400 transition p-1"
-                    title="Remove from watchlist"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                    <span className={`app-pill ${STATUS_COLORS[item.status]}`}>
+                      {STATUS_OPTIONS.find((statusOption) => statusOption.value === item.status)?.label}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <select
+                      value={item.status}
+                      onChange={(event) =>
+                        void handleStatusChange(item.id, event.target.value as WatchlistStatus)
+                      }
+                      disabled={isPending}
+                      className="field-select max-w-xs"
+                    >
+                      {STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value} className="bg-slate-900">
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/movie/${item.tmdbId}`)}
+                        className="btn-secondary"
+                      >
+                        Open movie
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemove(item.id)}
+                        disabled={isPending}
+                        className="btn-danger"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </div>

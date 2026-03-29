@@ -1,6 +1,3 @@
-// ── Backend response shapes ──────────────────────────────────────────
-
-/** Matches MovieResponseDto.java */
 export interface MovieResponse {
   tmdbId: number;
   movieTitle: string;
@@ -14,7 +11,6 @@ export interface MovieResponse {
   genres: string[];
 }
 
-/** Matches ReviewResponseDto.java */
 export interface ReviewResponse {
   id: number;
   tmdbId: number;
@@ -27,7 +23,6 @@ export interface ReviewResponse {
   updatedAt: string;
 }
 
-/** Matches WatchlistResponseDto.java */
 export interface WatchlistResponse {
   id: number;
   tmdbId: number;
@@ -39,15 +34,11 @@ export interface WatchlistResponse {
 
 export type WatchlistStatus = "PLAN_TO_WATCH" | "WATCHING" | "WATCHED";
 
-/** Matches GenreResponseDto.java */
 export interface GenreResponse {
   tmdbId: number;
   name: string;
 }
 
-// ── TMDB search shapes (raw from backend passthrough) ────────────────
-
-/** Matches SearchResponseDto.java — note: field names use @JsonProperty snake_case */
 export interface SearchResponse {
   page: number;
   results: TmdbMovie[];
@@ -55,7 +46,6 @@ export interface SearchResponse {
   total_results: number;
 }
 
-/** Matches MovieDto.java — TMDB search result item */
 export interface TmdbMovie {
   id: number;
   title: string;
@@ -67,8 +57,6 @@ export interface TmdbMovie {
   vote_average: number;
   genre_ids: number[];
 }
-
-// ── Request DTOs ─────────────────────────────────────────────────────
 
 export interface CreateReviewRequest {
   tmdbId: number;
@@ -82,16 +70,22 @@ export interface AddToWatchlistRequest {
   status?: WatchlistStatus;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
 export const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
+export const POSTER_PLACEHOLDER = "/posters/placeholder.svg";
+export const BACKDROP_PLACEHOLDER = "/posters/backdrop-placeholder.svg";
 
-export function posterUrl(path: string | null, size: "w185" | "w342" | "w500" = "w500"): string {
-  if (!path) return "/posters/placeholder.svg";
+export function posterUrl(
+  path: string | null,
+  size: "w185" | "w342" | "w500" = "w500"
+): string {
+  if (!path) return POSTER_PLACEHOLDER;
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
-export function backdropUrl(path: string | null, size: "w780" | "w1280" | "original" = "w1280"): string {
-  if (!path) return "";
+export function backdropUrl(
+  path: string | null,
+  size: "w780" | "w1280" | "original" = "w1280"
+): string {
+  if (!path) return BACKDROP_PLACEHOLDER;
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }

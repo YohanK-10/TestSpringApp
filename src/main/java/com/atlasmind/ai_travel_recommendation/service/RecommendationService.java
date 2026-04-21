@@ -1563,9 +1563,11 @@ public class RecommendationService {
     }
 
     private List<String> dedupeReasons(List<String> reasons) {
-        return new ArrayList<>(new LinkedHashSet<>(reasons)).stream()
-                .limit(3)
-                .toList();
+        return new ArrayList<>(
+                new ArrayList<>(new LinkedHashSet<>(reasons)).stream()
+                        .limit(3)
+                        .toList()
+        );
     }
 
     private boolean isRecommendationReady(Movie movie) {

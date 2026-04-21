@@ -529,6 +529,26 @@ class RecommendationServiceTest {
     }
 
     @Test
+    void coldStartRecommendationsUseFallbackReasonWhenNoSpecificReasonApplies() {
+        Movie quietMovie = TestFixtures.movie(32L, 332, "Quiet Catalog Pick");
+        quietMovie.setPopularity(20.0);
+        quietMovie.setMovieRating(5.6);
+        quietMovie.setReleaseDate(java.time.LocalDate.of(2005, 1, 1));
+
+        stubPopularCandidates(quietMovie);
+        stubTopRatedCandidates();
+        when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection())).thenReturn(List.of());
+
+        RecommendationRequestDto request = new RecommendationRequestDto(List.of("any"), "any", 5);
+
+        List<RecommendationResponseDto> results = recommendationService.getColdStartRecommendations(request);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).getReasons().stream()
+                .anyMatch(reason -> reason.contains("strong wider-catalog pick")));
+    }
+
+    @Test
     void coldStartRecommendationsUseExclusionAwareQueriesAfterEarlierChannelsAddCandidates() {
         Movie moodMovie = TestFixtures.movie(120L, 1120, "Mood Anchor");
         moodMovie.setPopularity(140.0);

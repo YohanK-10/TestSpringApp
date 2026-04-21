@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -88,6 +89,24 @@ public interface MovieRepository extends JpaRepository<Movie, Long> {
 
     @Query("""
             SELECT m FROM Movie m
+            WHERE m.id NOT IN :excludedMovieIds
+              AND m.popularity IS NOT NULL
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY m.popularity DESC, m.movieRating DESC, m.cachedAt DESC
+            """)
+    List<Movie> findRecommendationReadyPopularMoviesExcluding(
+            @Param("minimumRating") double minimumRating,
+            @Param("excludedMovieIds") Collection<Long> excludedMovieIds,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT m FROM Movie m
             WHERE m.movieRating IS NOT NULL
               AND m.movieRating >= :minimumRating
               AND m.runtime IS NOT NULL
@@ -97,4 +116,21 @@ public interface MovieRepository extends JpaRepository<Movie, Long> {
             ORDER BY m.movieRating DESC, m.popularity DESC, m.cachedAt DESC
             """)
     List<Movie> findRecommendationReadyTopRatedMovies(@Param("minimumRating") double minimumRating, Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.id NOT IN :excludedMovieIds
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY m.movieRating DESC, m.popularity DESC, m.cachedAt DESC
+            """)
+    List<Movie> findRecommendationReadyTopRatedMoviesExcluding(
+            @Param("minimumRating") double minimumRating,
+            @Param("excludedMovieIds") Collection<Long> excludedMovieIds,
+            Pageable pageable
+    );
 }

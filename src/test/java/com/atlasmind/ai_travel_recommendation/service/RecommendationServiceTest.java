@@ -32,6 +32,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -144,12 +147,9 @@ class RecommendationServiceTest {
         when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(watchlistEntry, watchedEntry));
         when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of(12L));
         when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(strongReview));
-        when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNames(anyCollection(), anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(genreMatchMovie));
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(popularMovie, genreMatchMovie));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(topRatedMovie, genreMatchMovie));
+        stubGenreCandidates(genreMatchMovie);
+        stubPopularCandidates(popularMovie, genreMatchMovie);
+        stubTopRatedCandidates(topRatedMovie, genreMatchMovie);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(watchlistMovie, thriller),
@@ -207,12 +207,9 @@ class RecommendationServiceTest {
         when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of());
         when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of());
         when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(positiveReview, negativeReview));
-        when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNames(anyCollection(), anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(thrillerCandidate));
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(thrillerCandidate, romanceCandidate));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(romanceCandidate, thrillerCandidate));
+        stubGenreCandidates(thrillerCandidate);
+        stubPopularCandidates(thrillerCandidate, romanceCandidate);
+        stubTopRatedCandidates(romanceCandidate, thrillerCandidate);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(likedReviewMovie, thriller),
@@ -244,10 +241,8 @@ class RecommendationServiceTest {
 
         Genre thriller = TestFixtures.genre(24L, 53, "Thriller");
 
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(shortMovie, longMovie));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(longMovie, shortMovie));
+        stubPopularCandidates(shortMovie, longMovie);
+        stubTopRatedCandidates(longMovie, shortMovie);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(shortMovie, thriller),
@@ -286,10 +281,8 @@ class RecommendationServiceTest {
 
         Genre drama = TestFixtures.genre(25L, 18, "Drama");
 
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(recentMovie, olderMovie));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(olderMovie, recentMovie));
+        stubPopularCandidates(recentMovie, olderMovie);
+        stubTopRatedCandidates(olderMovie, recentMovie);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(recentMovie, drama),
@@ -325,10 +318,8 @@ class RecommendationServiceTest {
         Genre mystery = TestFixtures.genre(32L, 9648, "Mystery");
         Genre drama = TestFixtures.genre(33L, 18, "Drama");
 
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(thrillerLead, thrillerFollowUp, dramaAlternative));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(thrillerLead, thrillerFollowUp, dramaAlternative));
+        stubPopularCandidates(thrillerLead, thrillerFollowUp, dramaAlternative);
+        stubTopRatedCandidates(thrillerLead, thrillerFollowUp, dramaAlternative);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(thrillerLead, thriller),
@@ -412,10 +403,8 @@ class RecommendationServiceTest {
         when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(watchedEntry));
         when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of(20L));
         when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of());
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(watchedMovie, otherMovie));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(otherMovie));
+        stubPopularCandidates(watchedMovie, otherMovie);
+        stubTopRatedCandidates(otherMovie);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(watchedMovie, thriller),
@@ -447,10 +436,8 @@ class RecommendationServiceTest {
         when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(watchlistEntry));
         when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of());
         when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of());
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(readyMovie));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(readyMovie));
+        stubPopularCandidates(readyMovie);
+        stubTopRatedCandidates(readyMovie);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(incompleteWatchlistMovie, drama),
@@ -474,12 +461,9 @@ class RecommendationServiceTest {
 
         Genre thriller = TestFixtures.genre(12L, 53, "Thriller");
 
-        when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNames(anyCollection(), anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(moodMovie));
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of());
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of());
+        stubGenreCandidates(moodMovie);
+        stubPopularCandidates();
+        stubTopRatedCandidates();
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(new MovieGenre(moodMovie, thriller)));
 
@@ -507,10 +491,8 @@ class RecommendationServiceTest {
         Genre adventure = TestFixtures.genre(9L, 12, "Adventure");
         Genre drama = TestFixtures.genre(10L, 18, "Drama");
 
-        when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(popularMovie));
-        when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
-                .thenReturn(List.of(highlyRatedMovie));
+        stubPopularCandidates(popularMovie);
+        stubTopRatedCandidates(highlyRatedMovie);
         when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
                 .thenReturn(List.of(
                         new MovieGenre(popularMovie, adventure),
@@ -527,5 +509,156 @@ class RecommendationServiceTest {
                 .anyMatch(reason -> reason.toLowerCase().contains("wider catalog")
                         || reason.toLowerCase().contains("popular catalog")
                         || reason.toLowerCase().contains("audience ratings")));
+    }
+
+    @Test
+    void coldStartRecommendationsUseExclusionAwareQueriesAfterEarlierChannelsAddCandidates() {
+        Movie moodMovie = TestFixtures.movie(120L, 1120, "Mood Anchor");
+        moodMovie.setPopularity(140.0);
+        moodMovie.setMovieRating(7.9);
+
+        Movie popularMovie = TestFixtures.movie(121L, 1121, "Popular Follow Up");
+        popularMovie.setPopularity(240.0);
+        popularMovie.setMovieRating(8.3);
+
+        Movie topRatedMovie = TestFixtures.movie(122L, 1122, "Top Rated Follow Up");
+        topRatedMovie.setPopularity(80.0);
+        topRatedMovie.setMovieRating(9.1);
+
+        Genre thriller = TestFixtures.genre(40L, 53, "Thriller");
+        Genre action = TestFixtures.genre(41L, 28, "Action");
+        Genre mystery = TestFixtures.genre(42L, 9648, "Mystery");
+
+        when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNames(anyCollection(), anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of(moodMovie));
+        lenient().when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNamesExcluding(
+                anyCollection(),
+                anyDouble(),
+                anyCollection(),
+                any(Pageable.class)
+        )).thenReturn(List.of());
+        lenient().when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(movieRepository.findRecommendationReadyPopularMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(popularMovie));
+        lenient().when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(movieRepository.findRecommendationReadyTopRatedMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(topRatedMovie));
+        when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
+                .thenReturn(List.of(
+                        new MovieGenre(moodMovie, thriller),
+                        new MovieGenre(popularMovie, action),
+                        new MovieGenre(topRatedMovie, mystery)
+                ));
+
+        RecommendationRequestDto request = new RecommendationRequestDto(List.of("tense"), "any", 5);
+
+        List<RecommendationResponseDto> results = recommendationService.getColdStartRecommendations(request);
+
+        assertEquals(3, results.size());
+        assertTrue(results.stream().anyMatch(result -> result.getTmdbId() == 1120));
+        assertTrue(results.stream().anyMatch(result -> result.getTmdbId() == 1121));
+        assertTrue(results.stream().anyMatch(result -> result.getTmdbId() == 1122));
+        verify(movieRepository, never()).findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class));
+        verify(movieRepository).findRecommendationReadyPopularMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class));
+        verify(movieRepository, never()).findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class));
+        verify(movieRepository).findRecommendationReadyTopRatedMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class));
+    }
+
+    @Test
+    void recommendationsReserveRoomForLaterChannelsWhenEarlierChannelsReturnDeepPools() {
+        User user = TestFixtures.user(1L, "alice", "alice@example.com");
+
+        Movie likedMovie = TestFixtures.movie(130L, 1130, "Liked Thriller Seed");
+        var positiveReview = TestFixtures.review(901L, user, likedMovie);
+        positiveReview.setRating(9);
+
+        Genre thriller = TestFixtures.genre(50L, 53, "Thriller");
+        Genre action = TestFixtures.genre(51L, 28, "Action");
+        Genre mystery = TestFixtures.genre(52L, 9648, "Mystery");
+
+        List<Movie> genreCandidates = new java.util.ArrayList<>();
+        List<Movie> moodCandidates = new java.util.ArrayList<>();
+        List<MovieGenre> allGenres = new java.util.ArrayList<>();
+        allGenres.add(new MovieGenre(likedMovie, thriller));
+
+        for (int index = 0; index < 60; index++) {
+            Movie genreMovie = TestFixtures.movie(200L + index, 2200 + index, "Genre Candidate " + index);
+            genreMovie.setMovieRating(6.1);
+            genreMovie.setPopularity(75.0 + index);
+            genreCandidates.add(genreMovie);
+            allGenres.add(new MovieGenre(genreMovie, thriller));
+
+            Movie moodMovie = TestFixtures.movie(400L + index, 2400 + index, "Mood Candidate " + index);
+            moodMovie.setMovieRating(6.0);
+            moodMovie.setPopularity(70.0 + index);
+            moodCandidates.add(moodMovie);
+            allGenres.add(new MovieGenre(moodMovie, action));
+        }
+
+        Movie popularMovie = TestFixtures.movie(700L, 2700, "Popular Late Entry");
+        popularMovie.setMovieRating(9.0);
+        popularMovie.setPopularity(320.0);
+        allGenres.add(new MovieGenre(popularMovie, action));
+
+        Movie topRatedMovie = TestFixtures.movie(701L, 2701, "Top Rated Late Entry");
+        topRatedMovie.setMovieRating(9.5);
+        topRatedMovie.setPopularity(140.0);
+        allGenres.add(new MovieGenre(topRatedMovie, mystery));
+
+        when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of());
+        when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of());
+        when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(positiveReview));
+        when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNames(anyCollection(), anyDouble(), any(Pageable.class)))
+                .thenReturn(genreCandidates);
+        when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNamesExcluding(
+                anyCollection(),
+                anyDouble(),
+                anyCollection(),
+                any(Pageable.class)
+        )).thenReturn(moodCandidates);
+        lenient().when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(movieRepository.findRecommendationReadyPopularMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(popularMovie));
+        lenient().when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(movieRepository.findRecommendationReadyTopRatedMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(topRatedMovie));
+        when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection())).thenReturn(allGenres);
+
+        RecommendationRequestDto request = new RecommendationRequestDto(List.of("tense"), "any", 5);
+
+        List<RecommendationResponseDto> results = recommendationService.getRecommendations(user, request);
+
+        assertEquals(5, results.size());
+        assertTrue(results.stream().anyMatch(result -> result.getTmdbId() == 2700));
+        assertTrue(results.stream().anyMatch(result -> result.getTmdbId() == 2701));
+    }
+
+    private void stubGenreCandidates(Movie... movies) {
+        lenient().when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNames(anyCollection(), anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of(movies));
+        lenient().when(movieGenreRepository.findDistinctRecommendationReadyMoviesByGenreNamesExcluding(
+                anyCollection(),
+                anyDouble(),
+                anyCollection(),
+                any(Pageable.class)
+        )).thenReturn(List.of(movies));
+    }
+
+    private void stubPopularCandidates(Movie... movies) {
+        lenient().when(movieRepository.findRecommendationReadyPopularMovies(anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of(movies));
+        lenient().when(movieRepository.findRecommendationReadyPopularMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(movies));
+    }
+
+    private void stubTopRatedCandidates(Movie... movies) {
+        lenient().when(movieRepository.findRecommendationReadyTopRatedMovies(anyDouble(), any(Pageable.class)))
+                .thenReturn(List.of(movies));
+        lenient().when(movieRepository.findRecommendationReadyTopRatedMoviesExcluding(anyDouble(), anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(movies));
     }
 }

@@ -19,6 +19,7 @@ public class RecommendationScoringProperties {
     private double watchlistBoostWeight = 0.10;
     private double freshnessWeight = 0.08;
     private double watchlistAgeWeight = 0.12;
+    private double sourceCountWeight = 0.10;
     private double dislikedGenrePenaltyWeight = 0.18;
     private double diversityPenaltyWeight = 0.15;
 

@@ -133,4 +133,30 @@ public interface MovieRepository extends JpaRepository<Movie, Long> {
             @Param("excludedMovieIds") Collection<Long> excludedMovieIds,
             Pageable pageable
     );
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            """)
+    List<Movie> findRecommendationReadyMovies(@Param("minimumRating") double minimumRating);
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.id NOT IN :excludedMovieIds
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            """)
+    List<Movie> findRecommendationReadyMoviesExcluding(
+            @Param("minimumRating") double minimumRating,
+            @Param("excludedMovieIds") Collection<Long> excludedMovieIds
+    );
 }

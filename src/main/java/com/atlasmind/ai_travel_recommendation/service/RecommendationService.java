@@ -8,6 +8,7 @@ import com.atlasmind.ai_travel_recommendation.dto.response.SoloRecommendationRes
 import com.atlasmind.ai_travel_recommendation.models.*;
 import com.atlasmind.ai_travel_recommendation.repository.MovieGenreRepository;
 import com.atlasmind.ai_travel_recommendation.repository.MovieRepository;
+import com.atlasmind.ai_travel_recommendation.repository.RecommendationImpressionRepository;
 import com.atlasmind.ai_travel_recommendation.repository.ReviewRepository;
 import com.atlasmind.ai_travel_recommendation.repository.WatchlistRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,7 @@ public class RecommendationService {
     private final ReviewRepository reviewRepository;
     private final MovieGenreRepository movieGenreRepository;
     private final MovieRepository movieRepository;
+    private final RecommendationImpressionRepository recommendationImpressionRepository;
     private final CatalogIngestionService catalogIngestionService;
     private final UserTasteProfileService userTasteProfileService;
     private final RecommendationScoringProperties scoringProperties;
@@ -61,6 +63,21 @@ public class RecommendationService {
     private static final double POPULARITY_SAMPLING_WEIGHT = 0.25;
     private static final double FRESHNESS_SAMPLING_WEIGHT = 0.15;
     private static final double MIN_SAMPLING_WEIGHT = 0.05;
+    private static final String CONTENT_SIMILARITY_CHANNEL = "content-similarity";
+    private static final int CONTENT_SIMILARITY_SEED_LIMIT = 2;
+    private static final int POSITIVE_REVIEW_SEED_THRESHOLD = 8;
+    private static final double MIN_CONTENT_SIMILARITY_SCORE = 0.08;
+    private static final double IGNORED_RECOMMENDATION_PENALTY = 0.15;
+    private static final int IGNORED_RECOMMENDATION_LOOKBACK_DAYS = 14;
+    private static final long IGNORED_RECOMMENDATION_THRESHOLD = 2L;
+    private static final int SUPPRESSED_RECOMMENDATION_LOOKBACK_DAYS = 30;
+    private static final long SUPPRESSED_RECOMMENDATION_THRESHOLD = 3L;
+    private static final Set<String> CONTENT_STOPWORDS = Set.of(
+            "about", "after", "all", "also", "and", "are", "because", "before", "been", "being",
+            "between", "but", "can", "during", "each", "for", "from", "into", "its", "more",
+            "over", "that", "their", "them", "then", "there", "they", "this", "through", "when",
+            "where", "which", "while", "with", "your"
+    );
 
     @Transactional(readOnly = true)
     public List<SoloRecommendationResponseDto> getSoloRecommendations(
@@ -121,13 +138,19 @@ public class RecommendationService {
     public List<RecommendationResponseDto> getRecommendations(User user, RecommendationRequestDto request) {
         seedCatalogIfNeeded();
         RecommendationContext context = buildRecommendationContext(user);
-        return buildCatalogRecommendations(request, context);
+        List<CatalogRecommendation> recommendations = buildCatalogRecommendations(request, context);
+        recordRecommendationImpressions(user, recommendations);
+        return recommendations.stream()
+                .map(this::toRecommendationResponse)
+                .toList();
     }
 
     @Transactional
     public List<RecommendationResponseDto> getColdStartRecommendations(RecommendationRequestDto request) {
         seedCatalogIfNeeded();
-        return buildCatalogRecommendations(request, RecommendationContext.createColdStart());
+        return buildCatalogRecommendations(request, RecommendationContext.createColdStart()).stream()
+                .map(this::toRecommendationResponse)
+                .toList();
     }
 
     private RecommendationContext buildRecommendationContext(User user) {
@@ -150,6 +173,14 @@ public class RecommendationService {
         Set<Long> watchedMovieIds = watchedMovieIdsFromQuery == null
                 ? new LinkedHashSet<>()
                 : new LinkedHashSet<>(watchedMovieIdsFromQuery);
+        Set<Long> interactedMovieIds = watchlistEntries.stream()
+                .map(entry -> entry.getMovie() != null ? entry.getMovie().getId() : null)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        reviews.stream()
+                .map(review -> review.getMovie() != null ? review.getMovie().getId() : null)
+                .filter(Objects::nonNull)
+                .forEach(interactedMovieIds::add);
 
         Set<Long> profileMovieIds = new LinkedHashSet<>(activeWatchlistByMovieId.keySet());
         reviews.stream()
@@ -162,12 +193,40 @@ public class RecommendationService {
                 activeWatchlistByMovieId.values(),
                 genresByMovieId
         );
+        Set<Long> penalizedMovieIds = resolveIgnoredMovieIds(
+                user.getId(),
+                interactedMovieIds,
+                IGNORED_RECOMMENDATION_LOOKBACK_DAYS,
+                IGNORED_RECOMMENDATION_THRESHOLD
+        );
+        Set<Long> suppressedMovieIds = resolveIgnoredMovieIds(
+                user.getId(),
+                interactedMovieIds,
+                SUPPRESSED_RECOMMENDATION_LOOKBACK_DAYS,
+                SUPPRESSED_RECOMMENDATION_THRESHOLD
+        );
+        List<Movie> contentSimilaritySeeds = resolveContentSimilaritySeeds(
+                reviews,
+                activeWatchlistByMovieId.values(),
+                tasteProfile,
+                genresByMovieId
+        );
         boolean coldStart = tasteProfile.isColdStart();
 
-        return new RecommendationContext(user.getId(), activeWatchlistByMovieId, watchedMovieIds, tasteProfile, coldStart, true);
+        return new RecommendationContext(
+                user.getId(),
+                activeWatchlistByMovieId,
+                watchedMovieIds,
+                penalizedMovieIds,
+                suppressedMovieIds,
+                tasteProfile,
+                contentSimilaritySeeds,
+                coldStart,
+                true
+        );
     }
 
-    private List<RecommendationResponseDto> buildCatalogRecommendations(
+    private List<CatalogRecommendation> buildCatalogRecommendations(
             RecommendationRequestDto request,
             RecommendationContext context
     ) {
@@ -177,19 +236,19 @@ public class RecommendationService {
         );
         int limit = normalizeLimit(request != null ? request.getLimit() : null);
 
-        List<Movie> candidates = retrieveCandidates(context, moods, limit);
+        List<CatalogCandidate> candidates = retrieveCandidates(context, moods, limit);
         if (candidates.isEmpty()) {
             return List.of();
         }
 
         Map<Long, List<String>> genresByMovieId = buildGenresByMovieId(
-                candidates.stream().map(Movie::getId).toList()
+                candidates.stream().map(candidate -> candidate.movie().getId()).toList()
         );
 
         List<CatalogRecommendation> rankedRecommendations = candidates.stream()
-                .filter(this::isRecommendationReady)
-                .filter(movie -> passesScoringHardFilters(movie, runtimePreference))
-                .map(movie -> scoreCatalogMovie(movie, moods, runtimePreference, context, genresByMovieId))
+                .filter(candidate -> isRecommendationReady(candidate.movie()))
+                .filter(candidate -> passesScoringHardFilters(candidate.movie(), runtimePreference))
+                .map(candidate -> scoreCatalogMovie(candidate, moods, runtimePreference, context, genresByMovieId))
                 .sorted(Comparator
                         .comparingDouble(CatalogRecommendation::score).reversed()
                         .thenComparing((CatalogRecommendation rec) -> rec.movie().getMovieRating(),
@@ -205,11 +264,10 @@ public class RecommendationService {
                         CatalogRecommendation::score,
                         CatalogRecommendation::genres
                 ).stream()
-                .map(this::toRecommendationResponse)
                 .toList();
     }
 
-    private List<Movie> retrieveCandidates(RecommendationContext context, Set<SoloMood> moods, int limit) {
+    private List<CatalogCandidate> retrieveCandidates(RecommendationContext context, Set<SoloMood> moods, int limit) {
         int channelPoolSize = Math.min(
                 MAX_CHANNEL_POOL_SIZE,
                 Math.max(MIN_CHANNEL_POOL_SIZE, limit * CHANNEL_POOL_MULTIPLIER)
@@ -225,128 +283,195 @@ public class RecommendationService {
                 Math.max(MIN_CATALOG_CHANNEL_LIMIT, limit * CATALOG_CHANNEL_LIMIT_MULTIPLIER)
         );
 
-        LinkedHashMap<Long, Movie> mergedCandidates = new LinkedHashMap<>();
+        Set<Long> baseExcludedMovieIds = baseExcludedMovieIds(context);
+        LinkedHashMap<Long, CandidateAccumulator> mergedCandidates = new LinkedHashMap<>();
 
         ChannelRetrievalStats watchlistStats = appendChannel(
-                "watchlist",
-                context.watchlistByMovieId().values().stream()
-                        .map(WatchList::getMovie)
-                        .toList(),
+                createStaticChannelBatch(
+                        "watchlist",
+                        context.watchlistByMovieId().values().stream()
+                                .map(WatchList::getMovie)
+                                .toList()
+                ),
                 mergedCandidates,
-                context.watchedMovieIds(),
+                baseExcludedMovieIds,
                 watchlistChannelLimit,
                 totalCandidateLimit
         );
 
         List<String> topGenres = context.tasteProfile().topPositiveGenres(MAX_TOP_GENRES);
-
-        List<Movie> genreAffinityCandidates = sampleWeightedCandidates(
-                "genre-affinity",
-                fetchGenreCandidates(topGenres, mergedCandidates.keySet(), oversampleSize),
-                channelPoolSize,
-                context
-        );
         ChannelRetrievalStats genreAffinityStats = appendChannel(
-                "genre-affinity",
-                genreAffinityCandidates,
+                createSampledChannelBatch(
+                        "genre-affinity",
+                        fetchGenreCandidates(topGenres, combineExcludedMovieIds(baseExcludedMovieIds, mergedCandidates.keySet()), oversampleSize),
+                        channelPoolSize,
+                        context
+                ),
                 mergedCandidates,
-                context.watchedMovieIds(),
+                baseExcludedMovieIds,
                 catalogChannelLimit,
                 totalCandidateLimit
         );
 
         List<String> moodGenres = resolveMoodGenres(moods);
-        List<Movie> moodAlignedCandidates = sampleWeightedCandidates(
-                "mood-aligned",
-                fetchGenreCandidates(moodGenres, mergedCandidates.keySet(), oversampleSize),
-                channelPoolSize,
-                context
-        );
         ChannelRetrievalStats moodStats = appendChannel(
-                "mood-aligned",
-                moodAlignedCandidates,
+                createSampledChannelBatch(
+                        "mood-aligned",
+                        fetchGenreCandidates(moodGenres, combineExcludedMovieIds(baseExcludedMovieIds, mergedCandidates.keySet()), oversampleSize),
+                        channelPoolSize,
+                        context
+                ),
                 mergedCandidates,
-                context.watchedMovieIds(),
+                baseExcludedMovieIds,
                 catalogChannelLimit,
                 totalCandidateLimit
         );
 
         ChannelRetrievalStats popularStats = appendChannel(
-                "popular",
-                sampleWeightedCandidates(
+                createSampledChannelBatch(
                         "popular",
-                        fetchPopularCandidates(mergedCandidates.keySet(), oversampleSize),
+                        fetchPopularCandidates(combineExcludedMovieIds(baseExcludedMovieIds, mergedCandidates.keySet()), oversampleSize),
                         channelPoolSize,
                         context
                 ),
                 mergedCandidates,
-                context.watchedMovieIds(),
+                baseExcludedMovieIds,
                 catalogChannelLimit,
                 totalCandidateLimit
         );
 
         ChannelRetrievalStats highRatedStats = appendChannel(
-                "high-rated",
-                sampleWeightedCandidates(
+                createSampledChannelBatch(
                         "high-rated",
-                        fetchTopRatedCandidates(mergedCandidates.keySet(), oversampleSize),
+                        fetchTopRatedCandidates(combineExcludedMovieIds(baseExcludedMovieIds, mergedCandidates.keySet()), oversampleSize),
                         channelPoolSize,
                         context
                 ),
                 mergedCandidates,
-                context.watchedMovieIds(),
+                baseExcludedMovieIds,
+                catalogChannelLimit,
+                totalCandidateLimit
+        );
+
+        ChannelRetrievalStats contentSimilarityStats = appendChannel(
+                buildContentSimilarityBatch(
+                        context,
+                        baseExcludedMovieIds,
+                        oversampleSize,
+                        channelPoolSize
+                ),
+                mergedCandidates,
+                baseExcludedMovieIds,
                 catalogChannelLimit,
                 totalCandidateLimit
         );
 
         log.info(
-                "Recommendation candidate retrieval -> watchlist={} (added {}), genreAffinity={} (added {}), moodAligned={} (added {}), popular={} (added {}), highRated={} (added {}), merged={}, anonymous={}, coldStart={}",
-                watchlistStats.eligibleCount(), watchlistStats.uniqueAddedCount(),
-                genreAffinityStats.eligibleCount(), genreAffinityStats.uniqueAddedCount(),
-                moodStats.eligibleCount(), moodStats.uniqueAddedCount(),
-                popularStats.eligibleCount(), popularStats.uniqueAddedCount(),
-                highRatedStats.eligibleCount(), highRatedStats.uniqueAddedCount(),
+                "Recommendation candidate retrieval -> watchlist[fetched={}, sampled={}, eligible={}, added={}, overlapDropped={}], genreAffinity[fetched={}, sampled={}, eligible={}, added={}, overlapDropped={}], moodAligned[fetched={}, sampled={}, eligible={}, added={}, overlapDropped={}], popular[fetched={}, sampled={}, eligible={}, added={}, overlapDropped={}], highRated[fetched={}, sampled={}, eligible={}, added={}, overlapDropped={}], contentSimilarity[fetched={}, sampled={}, eligible={}, added={}, overlapDropped={}], merged={}, penalized={}, suppressed={}, anonymous={}, coldStart={}",
+                watchlistStats.fetchedCount(), watchlistStats.sampledCount(), watchlistStats.eligibleCount(), watchlistStats.uniqueAddedCount(), watchlistStats.overlapDroppedCount(),
+                genreAffinityStats.fetchedCount(), genreAffinityStats.sampledCount(), genreAffinityStats.eligibleCount(), genreAffinityStats.uniqueAddedCount(), genreAffinityStats.overlapDroppedCount(),
+                moodStats.fetchedCount(), moodStats.sampledCount(), moodStats.eligibleCount(), moodStats.uniqueAddedCount(), moodStats.overlapDroppedCount(),
+                popularStats.fetchedCount(), popularStats.sampledCount(), popularStats.eligibleCount(), popularStats.uniqueAddedCount(), popularStats.overlapDroppedCount(),
+                highRatedStats.fetchedCount(), highRatedStats.sampledCount(), highRatedStats.eligibleCount(), highRatedStats.uniqueAddedCount(), highRatedStats.overlapDroppedCount(),
+                contentSimilarityStats.fetchedCount(), contentSimilarityStats.sampledCount(), contentSimilarityStats.eligibleCount(), contentSimilarityStats.uniqueAddedCount(), contentSimilarityStats.overlapDroppedCount(),
                 mergedCandidates.size(),
+                context.penalizedMovieIds().size(),
+                context.suppressedMovieIds().size(),
                 !context.authenticated(),
                 context.coldStart()
         );
 
         return mergedCandidates.values().stream()
                 .limit(totalCandidateLimit)
+                .map(CandidateAccumulator::toCatalogCandidate)
                 .toList();
     }
 
     private ChannelRetrievalStats appendChannel(
-            String channelName,
-            List<Movie> sourceMovies,
-            LinkedHashMap<Long, Movie> mergedCandidates,
-            Set<Long> watchedMovieIds,
+            ChannelCandidateBatch batch,
+            LinkedHashMap<Long, CandidateAccumulator> mergedCandidates,
+            Set<Long> hardExcludedMovieIds,
             int channelLimit,
             int totalCandidateLimit
     ) {
-        if (sourceMovies == null || sourceMovies.isEmpty()) {
-            return new ChannelRetrievalStats(channelName, 0, 0);
+        if (batch == null || batch.sampledCandidates().isEmpty()) {
+            return new ChannelRetrievalStats(
+                    batch == null ? "unknown" : batch.channelName(),
+                    batch == null ? 0 : batch.fetchedCandidates().size(),
+                    batch == null ? 0 : batch.sampledCandidates().size(),
+                    0,
+                    0,
+                    0
+            );
         }
 
         int eligibleCount = 0;
         int uniqueAddedCount = 0;
-        for (Movie movie : sourceMovies) {
-            if (!isRetrievableCandidate(movie, watchedMovieIds)) {
+        int overlapDroppedCount = 0;
+        for (PreparedCandidate candidate : batch.sampledCandidates()) {
+            Movie movie = candidate.movie();
+            if (!isRetrievableCandidate(movie, hardExcludedMovieIds)) {
                 continue;
             }
 
             eligibleCount++;
-            if (mergedCandidates.containsKey(movie.getId())
-                    || uniqueAddedCount >= channelLimit
+            CandidateAccumulator existingCandidate = mergedCandidates.get(movie.getId());
+            if (existingCandidate != null) {
+                existingCandidate.addSourceChannel(batch.channelName(), candidate.contentSimilarityScore());
+                overlapDroppedCount++;
+                continue;
+            }
+
+            if (uniqueAddedCount >= channelLimit
                     || mergedCandidates.size() >= totalCandidateLimit) {
                 continue;
             }
 
-            mergedCandidates.put(movie.getId(), movie);
+            mergedCandidates.put(movie.getId(), CandidateAccumulator.from(batch.channelName(), candidate));
             uniqueAddedCount++;
         }
 
-        return new ChannelRetrievalStats(channelName, eligibleCount, uniqueAddedCount);
+        return new ChannelRetrievalStats(
+                batch.channelName(),
+                batch.fetchedCandidates().size(),
+                batch.sampledCandidates().size(),
+                eligibleCount,
+                uniqueAddedCount,
+                overlapDroppedCount
+        );
+    }
+
+    private ChannelCandidateBatch createStaticChannelBatch(String channelName, List<Movie> sourceMovies) {
+        List<PreparedCandidate> preparedCandidates = toPreparedCandidates(sourceMovies);
+        return new ChannelCandidateBatch(channelName, preparedCandidates, preparedCandidates);
+    }
+
+    private ChannelCandidateBatch createSampledChannelBatch(
+            String channelName,
+            List<Movie> fetchedMovies,
+            int sampleSize,
+            RecommendationContext context
+    ) {
+        List<PreparedCandidate> preparedCandidates = toPreparedCandidates(fetchedMovies);
+        return new ChannelCandidateBatch(
+                channelName,
+                preparedCandidates,
+                sampleWeightedCandidates(channelName, preparedCandidates, sampleSize, context)
+        );
+    }
+
+    private Set<Long> baseExcludedMovieIds(RecommendationContext context) {
+        Set<Long> excludedMovieIds = new LinkedHashSet<>(context.watchedMovieIds());
+        excludedMovieIds.addAll(context.suppressedMovieIds());
+        return excludedMovieIds;
+    }
+
+    private Set<Long> combineExcludedMovieIds(Set<Long> baseExcludedMovieIds, Collection<Long> additionalMovieIds) {
+        Set<Long> excludedMovieIds = new LinkedHashSet<>(baseExcludedMovieIds);
+        if (additionalMovieIds != null) {
+            excludedMovieIds.addAll(additionalMovieIds);
+        }
+        return excludedMovieIds;
     }
 
     private List<Movie> fetchGenreCandidates(Collection<String> genreNames, Collection<Long> excludedMovieIds, int fetchSize) {
@@ -397,22 +522,63 @@ public class RecommendationService {
         );
     }
 
-    private List<Movie> sampleWeightedCandidates(
+    private List<Movie> fetchContentSimilarityCandidates(Collection<Long> excludedMovieIds) {
+        if (excludedMovieIds == null || excludedMovieIds.isEmpty()) {
+            return movieRepository.findRecommendationReadyMovies(MIN_RECOMMENDATION_RATING);
+        }
+
+        return movieRepository.findRecommendationReadyMoviesExcluding(
+                MIN_RECOMMENDATION_RATING,
+                new LinkedHashSet<>(excludedMovieIds)
+        );
+    }
+
+    private ChannelCandidateBatch buildContentSimilarityBatch(
+            RecommendationContext context,
+            Set<Long> excludedMovieIds,
+            int oversampleSize,
+            int sampleSize
+    ) {
+        if (context.contentSimilaritySeeds().isEmpty()) {
+            return new ChannelCandidateBatch(CONTENT_SIMILARITY_CHANNEL, List.of(), List.of());
+        }
+
+        List<PreparedCandidate> rankedContentCandidates = rankContentSimilarityCandidates(
+                context.contentSimilaritySeeds(),
+                fetchContentSimilarityCandidates(excludedMovieIds)
+        );
+
+        if (rankedContentCandidates.isEmpty()) {
+            return new ChannelCandidateBatch(CONTENT_SIMILARITY_CHANNEL, List.of(), List.of());
+        }
+
+        List<PreparedCandidate> fetchedCandidates = rankedContentCandidates.stream()
+                .limit(oversampleSize)
+                .toList();
+
+        return new ChannelCandidateBatch(
+                CONTENT_SIMILARITY_CHANNEL,
+                fetchedCandidates,
+                sampleWeightedCandidates(CONTENT_SIMILARITY_CHANNEL, fetchedCandidates, sampleSize, context)
+        );
+    }
+
+    private List<PreparedCandidate> sampleWeightedCandidates(
             String channelName,
-            List<Movie> sourceMovies,
+            List<PreparedCandidate> sourceCandidates,
             int sampleSize,
             RecommendationContext context
     ) {
-        if (sourceMovies == null || sourceMovies.isEmpty()) {
+        if (sourceCandidates == null || sourceCandidates.isEmpty()) {
             return List.of();
         }
 
-        if (sourceMovies.size() <= sampleSize) {
-            return List.copyOf(sourceMovies);
+        if (sourceCandidates.size() <= sampleSize) {
+            return List.copyOf(sourceCandidates);
         }
 
-        List<Movie> remaining = new ArrayList<>(sourceMovies);
-        List<Movie> sampled = new ArrayList<>(sampleSize);
+        List<PreparedCandidate> remaining = new ArrayList<>(sourceCandidates);
+        List<PreparedCandidate> sampled = new ArrayList<>(sampleSize);
         Random random = new Random(buildChannelSeed(channelName, context.userId()));
 
         while (!remaining.isEmpty() && sampled.size() < sampleSize) {
@@ -451,11 +617,302 @@ public class RecommendationService {
         return seed;
     }
 
-    private double samplingWeight(Movie movie) {
+    private double samplingWeight(PreparedCandidate candidate) {
+        Movie movie = candidate.movie();
         double weightedScore = (QUALITY_SAMPLING_WEIGHT * qualityScore(movie.getMovieRating()))
                 + (POPULARITY_SAMPLING_WEIGHT * popularityScore(movie.getPopularity()))
-                + (FRESHNESS_SAMPLING_WEIGHT * freshnessScore(movie.getReleaseDate()));
+                + (FRESHNESS_SAMPLING_WEIGHT * freshnessScore(movie.getReleaseDate()))
+                + candidate.contentSimilarityScore();
         return Math.max(MIN_SAMPLING_WEIGHT, weightedScore);
+    }
+
+    private List<PreparedCandidate> toPreparedCandidates(List<Movie> sourceMovies) {
+        if (sourceMovies == null || sourceMovies.isEmpty()) {
+            return List.of();
+        }
+
+        return sourceMovies.stream()
+                .filter(Objects::nonNull)
+                .map(movie -> new PreparedCandidate(movie, 0.0))
+                .toList();
+    }
+
+    private Set<Long> resolveIgnoredMovieIds(
+            Long userId,
+            Set<Long> interactedMovieIds,
+            int lookbackDays,
+            long minimumCount
+    ) {
+        if (userId == null) {
+            return Set.of();
+        }
+
+        Set<Long> ignoredMovieIds = recommendationImpressionRepository.findMovieIdsWithAtLeastImpressionsSince(
+                userId,
+                LocalDateTime.now().minusDays(lookbackDays),
+                minimumCount
+        ).stream()
+                .filter(movieId -> interactedMovieIds == null || !interactedMovieIds.contains(movieId))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        return ignoredMovieIds.isEmpty() ? Set.of() : ignoredMovieIds;
+    }
+
+    private List<Movie> resolveContentSimilaritySeeds(
+            List<Review> reviews,
+            Collection<WatchList> activeWatchlistEntries,
+            UserTasteProfile tasteProfile,
+            Map<Long, List<String>> genresByMovieId
+    ) {
+        LinkedHashMap<Long, Movie> seedMovies = new LinkedHashMap<>();
+
+        if (reviews != null) {
+            reviews.stream()
+                    .filter(review -> review.getRating() != null && review.getRating() >= POSITIVE_REVIEW_SEED_THRESHOLD)
+                    .sorted(Comparator
+                            .comparing(Review::getRating, Comparator.reverseOrder())
+                            .thenComparing(Review::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                    .map(Review::getMovie)
+                    .filter(this::hasUsableOverview)
+                    .forEach(movie -> {
+                        if (seedMovies.size() < CONTENT_SIMILARITY_SEED_LIMIT) {
+                            seedMovies.putIfAbsent(movie.getId(), movie);
+                        }
+                    });
+        }
+
+        if (seedMovies.size() >= CONTENT_SIMILARITY_SEED_LIMIT || activeWatchlistEntries == null) {
+            return List.copyOf(seedMovies.values());
+        }
+
+        activeWatchlistEntries.stream()
+                .filter(Objects::nonNull)
+                .filter(entry -> entry.getMovie() != null)
+                .filter(entry -> hasUsableOverview(entry.getMovie()))
+                .sorted(Comparator
+                        .comparingDouble((WatchList entry) -> watchlistSeedScore(entry.getMovie(), tasteProfile, genresByMovieId))
+                        .reversed()
+                        .thenComparing((WatchList entry) -> qualityScore(entry.getMovie().getMovieRating()), Comparator.reverseOrder())
+                        .thenComparing(WatchList::getAddedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .forEach(entry -> {
+                    if (seedMovies.size() < CONTENT_SIMILARITY_SEED_LIMIT) {
+                        seedMovies.putIfAbsent(entry.getMovie().getId(), entry.getMovie());
+                    }
+                });
+
+        return List.copyOf(seedMovies.values());
+    }
+
+    private double watchlistSeedScore(
+            Movie movie,
+            UserTasteProfile tasteProfile,
+            Map<Long, List<String>> genresByMovieId
+    ) {
+        if (movie == null) {
+            return 0.0;
+        }
+
+        List<String> genres = genresByMovieId.getOrDefault(movie.getId(), List.of());
+        return genreAffinityScore(tasteProfile, genres) + qualityScore(movie.getMovieRating());
+    }
+
+    private List<PreparedCandidate> rankContentSimilarityCandidates(List<Movie> seedMovies, List<Movie> candidateMovies) {
+        if (seedMovies == null || seedMovies.isEmpty() || candidateMovies == null || candidateMovies.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> seedMovieIds = seedMovies.stream()
+                .map(Movie::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<Long, List<String>> tokensByMovieId = new LinkedHashMap<>();
+        for (Movie seedMovie : seedMovies) {
+            tokensByMovieId.put(seedMovie.getId(), tokenizeContent(seedMovie.getOverview()));
+        }
+        for (Movie candidateMovie : candidateMovies) {
+            if (candidateMovie == null || candidateMovie.getId() == null || seedMovieIds.contains(candidateMovie.getId())) {
+                continue;
+            }
+
+            List<String> tokens = tokenizeContent(candidateMovie.getOverview());
+            if (!tokens.isEmpty()) {
+                tokensByMovieId.put(candidateMovie.getId(), tokens);
+            }
+        }
+
+        Map<String, Double> inverseDocumentFrequency = computeInverseDocumentFrequency(tokensByMovieId.values());
+        Map<String, Double> seedProfileVector = averageVectors(seedMovies.stream()
+                .map(Movie::getId)
+                .map(tokensByMovieId::get)
+                .filter(tokens -> tokens != null && !tokens.isEmpty())
+                .map(tokens -> buildTfIdfVector(tokens, inverseDocumentFrequency))
+                .toList());
+
+        if (seedProfileVector.isEmpty()) {
+            return List.of();
+        }
+
+        return candidateMovies.stream()
+                .filter(Objects::nonNull)
+                .filter(movie -> movie.getId() != null && !seedMovieIds.contains(movie.getId()))
+                .map(movie -> {
+                    Map<String, Double> candidateVector = buildTfIdfVector(
+                            tokensByMovieId.getOrDefault(movie.getId(), List.of()),
+                            inverseDocumentFrequency
+                    );
+                    return new PreparedCandidate(movie, cosineSimilarity(seedProfileVector, candidateVector));
+                })
+                .filter(candidate -> candidate.contentSimilarityScore() >= MIN_CONTENT_SIMILARITY_SCORE)
+                .sorted(Comparator
+                        .comparingDouble(PreparedCandidate::contentSimilarityScore).reversed()
+                        .thenComparing(candidate -> candidate.movie().getMovieRating(), Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(candidate -> candidate.movie().getPopularity(), Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    private Map<String, Double> computeInverseDocumentFrequency(Collection<List<String>> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Integer> documentFrequency = new HashMap<>();
+        int documentCount = 0;
+
+        for (List<String> document : documents) {
+            if (document == null || document.isEmpty()) {
+                continue;
+            }
+
+            documentCount++;
+            new LinkedHashSet<>(document).forEach(term -> documentFrequency.merge(term, 1, Integer::sum));
+        }
+
+        if (documentCount == 0) {
+            return Map.of();
+        }
+
+        Map<String, Double> inverseDocumentFrequency = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : documentFrequency.entrySet()) {
+            inverseDocumentFrequency.put(
+                    entry.getKey(),
+                    Math.log((double) (documentCount + 1) / (entry.getValue() + 1)) + 1.0
+            );
+        }
+        return inverseDocumentFrequency;
+    }
+
+    private Map<String, Double> buildTfIdfVector(List<String> tokens, Map<String, Double> inverseDocumentFrequency) {
+        if (tokens == null || tokens.isEmpty() || inverseDocumentFrequency == null || inverseDocumentFrequency.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Integer> termFrequency = new HashMap<>();
+        for (String token : tokens) {
+            termFrequency.merge(token, 1, Integer::sum);
+        }
+
+        int totalTerms = tokens.size();
+        if (totalTerms == 0) {
+            return Map.of();
+        }
+
+        Map<String, Double> vector = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : termFrequency.entrySet()) {
+            double tf = (double) entry.getValue() / totalTerms;
+            double idf = inverseDocumentFrequency.getOrDefault(entry.getKey(), 0.0);
+            double tfIdf = tf * idf;
+            if (tfIdf > 0.0) {
+                vector.put(entry.getKey(), tfIdf);
+            }
+        }
+
+        return vector;
+    }
+
+    private Map<String, Double> averageVectors(List<Map<String, Double>> vectors) {
+        if (vectors == null || vectors.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Double> summedVector = new HashMap<>();
+        for (Map<String, Double> vector : vectors) {
+            if (vector == null || vector.isEmpty()) {
+                continue;
+            }
+
+            for (Map.Entry<String, Double> entry : vector.entrySet()) {
+                summedVector.merge(entry.getKey(), entry.getValue(), Double::sum);
+            }
+        }
+
+        if (summedVector.isEmpty()) {
+            return Map.of();
+        }
+
+        int vectorCount = Math.max(1, vectors.size());
+        Map<String, Double> averagedVector = new HashMap<>();
+        for (Map.Entry<String, Double> entry : summedVector.entrySet()) {
+            averagedVector.put(entry.getKey(), entry.getValue() / vectorCount);
+        }
+        return averagedVector;
+    }
+
+    private double cosineSimilarity(Map<String, Double> leftVector, Map<String, Double> rightVector) {
+        if (leftVector == null || leftVector.isEmpty() || rightVector == null || rightVector.isEmpty()) {
+            return 0.0;
+        }
+
+        double dotProduct = 0.0;
+        for (Map.Entry<String, Double> entry : leftVector.entrySet()) {
+            dotProduct += entry.getValue() * rightVector.getOrDefault(entry.getKey(), 0.0);
+        }
+
+        if (dotProduct <= 0.0) {
+            return 0.0;
+        }
+
+        double leftMagnitude = Math.sqrt(leftVector.values().stream()
+                .mapToDouble(value -> value * value)
+                .sum());
+        double rightMagnitude = Math.sqrt(rightVector.values().stream()
+                .mapToDouble(value -> value * value)
+                .sum());
+
+        if (leftMagnitude == 0.0 || rightMagnitude == 0.0) {
+            return 0.0;
+        }
+
+        return clamp01(dotProduct / (leftMagnitude * rightMagnitude));
+    }
+
+    private List<String> tokenizeContent(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+
+        return Arrays.stream(text.toLowerCase(Locale.ROOT).split("[^a-z0-9]+"))
+                .filter(token -> token.length() >= 3)
+                .filter(token -> !CONTENT_STOPWORDS.contains(token))
+                .toList();
+    }
+
+    private boolean hasUsableOverview(Movie movie) {
+        return movie != null
+                && movie.getId() != null
+                && movie.getOverview() != null
+                && !movie.getOverview().isBlank()
+                && isRecommendationReady(movie);
+    }
+
+    private void recordRecommendationImpressions(User user, List<CatalogRecommendation> recommendations) {
+        if (user == null || recommendations == null || recommendations.isEmpty()) {
+            return;
+        }
+
+        recommendationImpressionRepository.saveAll(recommendations.stream()
+                .map(recommendation -> new RecommendationImpression(null, user, recommendation.movie(), null))
+                .toList());
     }
 
     private List<String> resolveMoodGenres(Set<SoloMood> moods) {
@@ -562,7 +1019,8 @@ public class RecommendationService {
                 hasMoodIntent(moods),
                 runtimePreference != RuntimePreference.ANY,
                 false,
-                true
+                true,
+                false
         );
         List<String> reasons = buildWatchlistReasons(entry, movie, moods, runtimePreference, tasteProfile, genres, features);
 
@@ -574,24 +1032,37 @@ public class RecommendationService {
     }
 
     private CatalogRecommendation scoreCatalogMovie(
-            Movie movie,
+            CatalogCandidate candidate,
             Set<SoloMood> moods,
             RuntimePreference runtimePreference,
             RecommendationContext context,
             Map<Long, List<String>> genresByMovieId
     ) {
+        Movie movie = candidate.movie();
         List<String> genres = genresByMovieId.getOrDefault(movie.getId(), List.of());
         WatchList watchlistEntry = context.watchlistByMovieId().get(movie.getId());
-        RankingFeatures features = buildCatalogFeatures(movie, watchlistEntry, moods, runtimePreference, context.tasteProfile(), genres);
+        RankingFeatures features = buildCatalogFeatures(
+                movie,
+                watchlistEntry,
+                moods,
+                runtimePreference,
+                context.tasteProfile(),
+                genres,
+                candidate.sourceCount()
+        );
         double score = computeWeightedScore(
                 features,
                 context.tasteProfile().hasSignals(),
                 hasMoodIntent(moods),
                 runtimePreference != RuntimePreference.ANY,
                 true,
-                false
+                false,
+                true
         );
-        List<String> reasons = buildCatalogReasons(movie, moods, runtimePreference, context, genres, features);
+        if (context.penalizedMovieIds().contains(movie.getId())) {
+            score = clamp01(score - IGNORED_RECOMMENDATION_PENALTY);
+        }
+        List<String> reasons = buildCatalogReasons(movie, moods, runtimePreference, context, genres, features, candidate);
 
         if (reasons.isEmpty()) {
             if (context.coldStart()) {
@@ -628,7 +1099,8 @@ public class RecommendationService {
                 popularityScore(movie.getPopularity()),
                 0.0,
                 freshnessScore(movie.getReleaseDate()),
-                watchlistAgeScore(entry)
+                watchlistAgeScore(entry),
+                0.0
         );
     }
 
@@ -638,7 +1110,8 @@ public class RecommendationService {
             Set<SoloMood> moods,
             RuntimePreference runtimePreference,
             UserTasteProfile tasteProfile,
-            List<String> genres
+            List<String> genres,
+            int sourceCount
     ) {
         return new RankingFeatures(
                 genreAffinityScore(tasteProfile, genres),
@@ -649,7 +1122,8 @@ public class RecommendationService {
                 popularityScore(movie.getPopularity()),
                 watchlistEntry != null ? 1.0 : 0.0,
                 freshnessScore(movie.getReleaseDate()),
-                0.0
+                0.0,
+                sourceCountScore(sourceCount)
         );
     }
 
@@ -659,7 +1133,8 @@ public class RecommendationService {
             boolean includeMood,
             boolean includeRuntime,
             boolean includeWatchlistBoost,
-            boolean includeWatchlistAge
+            boolean includeWatchlistAge,
+            boolean includeSourceCount
     ) {
         double weightedPositive = 0.0;
         double positiveWeightTotal = 0.0;
@@ -683,6 +1158,10 @@ public class RecommendationService {
         if (includeWatchlistAge) {
             weightedPositive += scoringProperties.getWatchlistAgeWeight() * features.watchlistAge();
             positiveWeightTotal += scoringProperties.getWatchlistAgeWeight();
+        }
+        if (includeSourceCount) {
+            weightedPositive += scoringProperties.getSourceCountWeight() * features.sourceCount();
+            positiveWeightTotal += scoringProperties.getSourceCountWeight();
         }
 
         weightedPositive += scoringProperties.getQualityWeight() * features.quality();
@@ -730,7 +1209,8 @@ public class RecommendationService {
             RuntimePreference runtimePreference,
             RecommendationContext context,
             List<String> genres,
-            RankingFeatures features
+            RankingFeatures features,
+            CatalogCandidate candidate
     ) {
         List<String> reasons = new ArrayList<>();
 
@@ -740,11 +1220,21 @@ public class RecommendationService {
         addMoodReason(moods, genres, features.moodMatch(), reasons);
         addRuntimeReason(runtimePreference, features.runtimeMatch(), reasons);
         addTasteReason(context.tasteProfile(), genres, features, reasons);
+        addSourceCountReason(candidate.sourceCount(), reasons);
+        addContentSimilarityReason(candidate, context, reasons);
         addQualityReason(movie, context.coldStart(), features.quality(), reasons);
         addPopularityReason(movie, context.coldStart(), features.popularity(), reasons);
         addFreshnessReason(movie, features.freshness(), reasons);
 
         return dedupeReasons(reasons);
+    }
+
+    private double sourceCountScore(int sourceCount) {
+        if (sourceCount <= 1) {
+            return 0.0;
+        }
+
+        return clamp01((sourceCount - 1.0) / 4.0);
     }
 
     private double genreAffinityScore(UserTasteProfile tasteProfile, List<String> genres) {
@@ -940,6 +1430,43 @@ public class RecommendationService {
         }
 
         reasons.add("It is also a relatively recent release, which can help when you want something fresher.");
+    }
+
+    private void addSourceCountReason(int sourceCount, List<String> reasons) {
+        if (sourceCount < 2) {
+            return;
+        }
+
+        reasons.add(sourceCount >= 3
+                ? "Multiple recommendation signals all surfaced this, so it kept winning across the pool."
+                : "More than one recommendation signal pointed to this, which makes it a sturdier pick.");
+    }
+
+    private void addContentSimilarityReason(
+            CatalogCandidate candidate,
+            RecommendationContext context,
+            List<String> reasons
+    ) {
+        if (candidate == null
+                || candidate.contentSimilarityScore() < MIN_CONTENT_SIMILARITY_SCORE
+                || context == null
+                || context.contentSimilaritySeeds().isEmpty()) {
+            return;
+        }
+
+        List<String> seedTitles = context.contentSimilaritySeeds().stream()
+                .map(Movie::getMovieTitle)
+                .filter(Objects::nonNull)
+                .filter(title -> !title.isBlank())
+                .limit(2)
+                .toList();
+
+        if (seedTitles.isEmpty()) {
+            reasons.add("Its plot and overall premise are close to movies you have already responded well to.");
+            return;
+        }
+
+        reasons.add("Its plot and overall premise are close to " + humanizeLabels(seedTitles) + ".");
     }
 
     private List<String> matchingMoodGenres(Set<SoloMood> moods, List<String> genres) {
@@ -1147,19 +1674,35 @@ public class RecommendationService {
             Long userId,
             Map<Long, WatchList> watchlistByMovieId,
             Set<Long> watchedMovieIds,
+            Set<Long> penalizedMovieIds,
+            Set<Long> suppressedMovieIds,
             UserTasteProfile tasteProfile,
+            List<Movie> contentSimilaritySeeds,
             boolean coldStart,
             boolean authenticated
     ) {
         private static RecommendationContext createColdStart() {
-            return new RecommendationContext(null, Map.of(), Set.of(), UserTasteProfile.empty(), true, false);
+            return new RecommendationContext(
+                    null,
+                    Map.of(),
+                    Set.of(),
+                    Set.of(),
+                    Set.of(),
+                    UserTasteProfile.empty(),
+                    List.of(),
+                    true,
+                    false
+            );
         }
     }
 
     private record ChannelRetrievalStats(
             String channelName,
+            int fetchedCount,
+            int sampledCount,
             int eligibleCount,
-            int uniqueAddedCount
+            int uniqueAddedCount,
+            int overlapDroppedCount
     ) {
     }
 
@@ -1172,8 +1715,59 @@ public class RecommendationService {
             double popularity,
             double watchlistBoost,
             double freshness,
-            double watchlistAge
+            double watchlistAge,
+            double sourceCount
     ) {
+    }
+
+    private record CatalogCandidate(
+            Movie movie,
+            List<String> sourceChannels,
+            double contentSimilarityScore
+    ) {
+        private int sourceCount() {
+            return sourceChannels == null ? 0 : sourceChannels.size();
+        }
+    }
+
+    private record PreparedCandidate(
+            Movie movie,
+            double contentSimilarityScore
+    ) {
+    }
+
+    private record ChannelCandidateBatch(
+            String channelName,
+            List<PreparedCandidate> fetchedCandidates,
+            List<PreparedCandidate> sampledCandidates
+    ) {
+    }
+
+    private static final class CandidateAccumulator {
+        private final Movie movie;
+        private final LinkedHashSet<String> sourceChannels;
+        private double contentSimilarityScore;
+
+        private CandidateAccumulator(Movie movie, LinkedHashSet<String> sourceChannels, double contentSimilarityScore) {
+            this.movie = movie;
+            this.sourceChannels = sourceChannels;
+            this.contentSimilarityScore = contentSimilarityScore;
+        }
+
+        private static CandidateAccumulator from(String channelName, PreparedCandidate candidate) {
+            LinkedHashSet<String> sourceChannels = new LinkedHashSet<>();
+            sourceChannels.add(channelName);
+            return new CandidateAccumulator(candidate.movie(), sourceChannels, candidate.contentSimilarityScore());
+        }
+
+        private void addSourceChannel(String channelName, double additionalContentSimilarityScore) {
+            sourceChannels.add(channelName);
+            contentSimilarityScore = Math.max(contentSimilarityScore, additionalContentSimilarityScore);
+        }
+
+        private CatalogCandidate toCatalogCandidate() {
+            return new CatalogCandidate(movie, List.copyOf(sourceChannels), contentSimilarityScore);
+        }
     }
 
     private enum SoloMood {

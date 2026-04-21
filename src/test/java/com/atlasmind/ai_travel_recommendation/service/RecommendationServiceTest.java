@@ -13,11 +13,13 @@ import com.atlasmind.ai_travel_recommendation.models.WatchList;
 import com.atlasmind.ai_travel_recommendation.models.WatchListStatus;
 import com.atlasmind.ai_travel_recommendation.repository.MovieGenreRepository;
 import com.atlasmind.ai_travel_recommendation.repository.MovieRepository;
+import com.atlasmind.ai_travel_recommendation.repository.RecommendationImpressionRepository;
 import com.atlasmind.ai_travel_recommendation.repository.ReviewRepository;
 import com.atlasmind.ai_travel_recommendation.repository.WatchlistRepository;
 import com.atlasmind.ai_travel_recommendation.support.TestFixtures;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -32,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,6 +52,8 @@ class RecommendationServiceTest {
     @Mock
     private MovieRepository movieRepository;
     @Mock
+    private RecommendationImpressionRepository recommendationImpressionRepository;
+    @Mock
     private CatalogIngestionService catalogIngestionService;
     @Spy
     private UserTasteProfileService userTasteProfileService = new UserTasteProfileService();
@@ -57,6 +62,18 @@ class RecommendationServiceTest {
 
     @InjectMocks
     private RecommendationService recommendationService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(recommendationImpressionRepository.findMovieIdsWithAtLeastImpressionsSince(
+                anyLong(),
+                any(LocalDateTime.class),
+                anyLong()
+        )).thenReturn(List.of());
+        lenient().when(movieRepository.findRecommendationReadyMovies(anyDouble())).thenReturn(List.of());
+        lenient().when(movieRepository.findRecommendationReadyMoviesExcluding(anyDouble(), anyCollection()))
+                .thenReturn(List.of());
+    }
 
     @Test
     void soloRecommendationsPreferMoodRuntimeAndOlderWatchlistMovies() {
@@ -635,6 +652,145 @@ class RecommendationServiceTest {
         assertEquals(5, results.size());
         assertTrue(results.stream().anyMatch(result -> result.getTmdbId() == 2700));
         assertTrue(results.stream().anyMatch(result -> result.getTmdbId() == 2701));
+    }
+
+    @Test
+    void recommendationsPenalizeRepeatedlyIgnoredMovies() {
+        User user = TestFixtures.user(1L, "alice", "alice@example.com");
+
+        Movie likedMovie = TestFixtures.movie(150L, 1150, "Liked Thriller Seed");
+        likedMovie.setOverview("A tense conspiracy thriller with a brilliant detective.");
+        var positiveReview = TestFixtures.review(950L, user, likedMovie);
+        positiveReview.setRating(9);
+
+        Movie penalizedMovie = TestFixtures.movie(151L, 1151, "Ignored Favorite");
+        penalizedMovie.setMovieRating(8.5);
+        penalizedMovie.setPopularity(150.0);
+
+        Movie freshMovie = TestFixtures.movie(152L, 1152, "Fresh Option");
+        freshMovie.setMovieRating(8.2);
+        freshMovie.setPopularity(138.0);
+
+        Genre thriller = TestFixtures.genre(60L, 53, "Thriller");
+
+        when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of());
+        when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of());
+        when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(positiveReview));
+        when(recommendationImpressionRepository.findMovieIdsWithAtLeastImpressionsSince(
+                anyLong(),
+                any(LocalDateTime.class),
+                anyLong()
+        )).thenAnswer(invocation -> invocation.getArgument(2, Long.class) >= 3L
+                ? List.of()
+                : List.of(151L));
+        stubGenreCandidates(penalizedMovie, freshMovie);
+        stubPopularCandidates();
+        stubTopRatedCandidates();
+        when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
+                .thenReturn(List.of(
+                        new MovieGenre(likedMovie, thriller),
+                        new MovieGenre(penalizedMovie, thriller),
+                        new MovieGenre(freshMovie, thriller)
+                ));
+
+        RecommendationRequestDto request = new RecommendationRequestDto(List.of("any"), "any", 5);
+
+        List<RecommendationResponseDto> results = recommendationService.getRecommendations(user, request);
+
+        assertEquals(2, results.size());
+        assertEquals(1152, results.get(0).getTmdbId());
+        assertEquals(1151, results.get(1).getTmdbId());
+    }
+
+    @Test
+    void recommendationsSuppressMoviesIgnoredTooManyTimes() {
+        User user = TestFixtures.user(1L, "alice", "alice@example.com");
+
+        Movie likedMovie = TestFixtures.movie(160L, 1160, "Liked Action Seed");
+        likedMovie.setOverview("A rescue mission across hostile territory.");
+        var positiveReview = TestFixtures.review(960L, user, likedMovie);
+        positiveReview.setRating(9);
+
+        Movie suppressedMovie = TestFixtures.movie(161L, 1161, "Suppressed Pick");
+        Movie remainingMovie = TestFixtures.movie(162L, 1162, "Remaining Pick");
+
+        Genre action = TestFixtures.genre(61L, 28, "Action");
+
+        when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of());
+        when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of());
+        when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(positiveReview));
+        when(recommendationImpressionRepository.findMovieIdsWithAtLeastImpressionsSince(
+                anyLong(),
+                any(LocalDateTime.class),
+                anyLong()
+        )).thenAnswer(invocation -> {
+            long minimumCount = invocation.getArgument(2, Long.class);
+            return minimumCount >= 3L ? List.of(161L) : List.of();
+        });
+        stubGenreCandidates(suppressedMovie, remainingMovie);
+        stubPopularCandidates();
+        stubTopRatedCandidates();
+        when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
+                .thenReturn(List.of(
+                        new MovieGenre(likedMovie, action),
+                        new MovieGenre(suppressedMovie, action),
+                        new MovieGenre(remainingMovie, action)
+                ));
+
+        RecommendationRequestDto request = new RecommendationRequestDto(List.of("any"), "any", 5);
+
+        List<RecommendationResponseDto> results = recommendationService.getRecommendations(user, request);
+
+        assertEquals(1, results.size());
+        assertEquals(1162, results.get(0).getTmdbId());
+    }
+
+    @Test
+    void recommendationsBoostContentSimilarMoviesBackedByAnotherChannel() {
+        User user = TestFixtures.user(1L, "alice", "alice@example.com");
+
+        Movie seedMovie = TestFixtures.movie(170L, 1170, "Deep Space Survival");
+        seedMovie.setOverview("Astronauts stranded on a remote planet fight to survive after a mission disaster.");
+        var positiveReview = TestFixtures.review(970L, user, seedMovie);
+        positiveReview.setRating(9);
+
+        Movie plotSimilarMovie = TestFixtures.movie(171L, 1171, "Orbit Rescue");
+        plotSimilarMovie.setMovieRating(7.9);
+        plotSimilarMovie.setPopularity(118.0);
+        plotSimilarMovie.setOverview("A stranded astronaut crew must survive on a hostile planet until a rescue mission arrives.");
+
+        Movie lessSimilarMovie = TestFixtures.movie(172L, 1172, "Galactic Parade");
+        lessSimilarMovie.setMovieRating(8.2);
+        lessSimilarMovie.setPopularity(135.0);
+        lessSimilarMovie.setOverview("A famous performer leads a dazzling interstellar celebration while juggling romance and fame.");
+
+        Genre scienceFiction = TestFixtures.genre(62L, 878, "Science Fiction");
+
+        when(watchlistRepository.findByUserIdWithDetails(1L)).thenReturn(List.of());
+        when(watchlistRepository.findMovieIdsByUserIdAndStatus(1L, WatchListStatus.WATCHED)).thenReturn(List.of());
+        when(reviewRepository.findByUserIdWithDetails(1L)).thenReturn(List.of(positiveReview));
+        stubGenreCandidates(plotSimilarMovie, lessSimilarMovie);
+        stubPopularCandidates();
+        stubTopRatedCandidates();
+        when(movieRepository.findRecommendationReadyMovies(anyDouble()))
+                .thenReturn(List.of(seedMovie, plotSimilarMovie, lessSimilarMovie));
+        when(movieGenreRepository.findByMovieIdInWithGenre(anyCollection()))
+                .thenReturn(List.of(
+                        new MovieGenre(seedMovie, scienceFiction),
+                        new MovieGenre(plotSimilarMovie, scienceFiction),
+                        new MovieGenre(lessSimilarMovie, scienceFiction)
+                ));
+
+        RecommendationRequestDto request = new RecommendationRequestDto(List.of("any"), "any", 5);
+
+        List<RecommendationResponseDto> results = recommendationService.getRecommendations(user, request);
+
+        assertEquals(2, results.size());
+        assertEquals(1171, results.get(0).getTmdbId());
+        assertTrue(results.get(0).getReasons().stream()
+                .map(String::toLowerCase)
+                .anyMatch(reason -> reason.contains("plot and overall premise are close")
+                        || reason.contains("recommendation signals")));
     }
 
     private void stubGenreCandidates(Movie... movies) {

@@ -1,0 +1,21 @@
+benchmark_version,prompt_id,primary_mood,secondary_moods,runtime,era,discovery_intent,notes
+v1,p001,tense,dark|eerie,medium,any,familiar,Atmospheric suspense with a dependable established choice
+v1,p002,comforting,funny|hopeful,short,any,familiar,Low-commitment uplifting comedy
+v1,p003,emotional,thoughtful,medium,1990s,balanced,Emotionally substantial 1990s drama
+v1,p004,mind-bending,eerie|dark,medium,any,balanced,Psychological or surreal rather than generic mystery
+v1,p005,adventurous,hopeful,medium,2000s,familiar,Optimistic adventure from the 2000s
+v1,p006,romantic,bittersweet|emotional,medium,any,balanced,Romance with emotional complexity
+v1,p007,funny,comforting,short,2010s,hidden-gems,Less obvious 2010s comedy
+v1,p008,tense,mind-bending,short,any,balanced,Fast psychological thriller
+v1,p009,thoughtful,inspiring|hopeful,long,any,familiar,Substantial and inspiring long-form watch
+v1,p010,dark,emotional|thoughtful,long,pre-1980,balanced,Serious classic with emotional depth
+v1,p011,eerie,tense,medium,1980s,hidden-gems,Atmospheric 1980s horror or mystery
+v1,p012,comforting,romantic|funny,medium,2000s,familiar,Accessible romantic comfort watch
+v1,p013,bittersweet,thoughtful,short,any,balanced,Concise reflective film without requiring comedy
+v1,p014,adventurous,funny,medium,2020s,balanced,Recent fun adventure
+v1,p015,mind-bending,thoughtful|emotional,long,2010s,familiar,Ambitious cerebral 2010s film
+v1,p016,hopeful,inspiring,medium,any,hidden-gems,Underexposed uplifting discovery
+v1,p017,dark,tense|thoughtful,medium,1990s,familiar,Established 1990s crime thriller
+v1,p018,emotional,comforting,short,any,balanced,Gentle emotional film that is not bleak
+v1,p019,eerie,mind-bending,medium,2020s,hidden-gems,Recent underexposed uncanny film
+v1,p020,any,,any,any,balanced,Control prompt for general quality and diversity

@@ -1,0 +1,216 @@
+{
+  "benchmarkVersion" : "session-intent-v1",
+  "algorithmVersion" : "v14-balanced-mood-blends",
+  "catalogSnapshot" : "sha256:e3227a3a431638be5b6a56d056262b1dfec803d0b6bfd06d88da54c0a23c18f5",
+  "generatedAt" : "2026-08-16T16:35:09.214445488Z",
+  "promptCount" : 20,
+  "personaCount" : 4,
+  "rotations" : 10,
+  "guardrailCaveat" : "Rule-derived mood coverage is a circular implementation guardrail, not semantic relevance evidence.",
+  "report" : {
+    "sessions" : 800,
+    "clusters" : 80,
+    "recommendations" : 2055,
+    "catalogSize" : 775,
+    "uniqueMovies" : 233,
+    "fullShortlistRate" : 0.3825,
+    "meanSlotFillRate" : 0.51375,
+    "meanRuleMoodCoverage" : 0.5939172749391728,
+    "primaryMoodViolationRate" : 0.20681265206812652,
+    "runtimeViolationRate" : 0.3148418491484185,
+    "eraViolationRate" : 0.0,
+    "meanGenreDiversity" : 0.4733036532288661,
+    "meanIntraListSimilarity" : 0.14809360119047618,
+    "catalogCoverage" : 0.3006451612903226,
+    "meanRotationOverlap" : 0.13388117283950618,
+    "meanUniqueResultRate" : 0.3295023598124997,
+    "topOneRepeatRate" : 0.5711382113821138,
+    "latencyP50Ms" : 54.996905,
+    "latencyP95Ms" : 95.414659,
+    "meanMergedCandidates" : 74.0,
+    "meanChannelCandidatesAdded" : {
+      "watchlist" : 0.0,
+      "content-similarity" : 0.0,
+      "popular" : 20.0,
+      "genre-affinity" : 15.0,
+      "high-rated" : 20.0,
+      "mood-aligned" : 19.0,
+      "collaborative" : 0.0
+    },
+    "confidenceIntervals" : {
+      "meanRuleMoodCoverage" : {
+        "estimate" : 0.5939172749391728,
+        "lower95" : 0.5217969165337586,
+        "upper95" : 0.6675126903553299
+      },
+      "meanRotationOverlap" : {
+        "estimate" : 0.13388117283950618,
+        "lower95" : 0.11099316578483245,
+        "upper95" : 0.15690531305114638
+      },
+      "primaryMoodViolationRate" : {
+        "estimate" : 0.20681265206812652,
+        "lower95" : 0.14320987654320988,
+        "upper95" : 0.26979611190137504
+      },
+      "fullShortlistRate" : {
+        "estimate" : 0.3825,
+        "lower95" : 0.28625,
+        "upper95" : 0.48375
+      }
+    },
+    "slices" : [ {
+      "dimension" : "primaryMood",
+      "value" : "tense",
+      "sessions" : 80,
+      "recommendations" : 260,
+      "fullShortlistRate" : 0.5,
+      "meanRuleMoodCoverage" : 0.6826923076923077,
+      "primaryMoodViolationRate" : 0.06153846153846154
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "comforting",
+      "sessions" : 80,
+      "recommendations" : 47,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 1.0,
+      "primaryMoodViolationRate" : 0.0
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "emotional",
+      "sessions" : 80,
+      "recommendations" : 301,
+      "fullShortlistRate" : 0.5125,
+      "meanRuleMoodCoverage" : 0.5498338870431894,
+      "primaryMoodViolationRate" : 0.46511627906976744
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "mind bending",
+      "sessions" : 80,
+      "recommendations" : 5,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 1.0,
+      "primaryMoodViolationRate" : 0.0
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "adventurous",
+      "sessions" : 80,
+      "recommendations" : 339,
+      "fullShortlistRate" : 0.65,
+      "meanRuleMoodCoverage" : 0.8053097345132744,
+      "primaryMoodViolationRate" : 0.0058997050147492625
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "romantic",
+      "sessions" : 40,
+      "recommendations" : 35,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 1.0,
+      "primaryMoodViolationRate" : 0.0
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "funny",
+      "sessions" : 40,
+      "recommendations" : 172,
+      "fullShortlistRate" : 0.575,
+      "meanRuleMoodCoverage" : 0.6831395348837209,
+      "primaryMoodViolationRate" : 0.01744186046511628
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "thoughtful",
+      "sessions" : 40,
+      "recommendations" : 0,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 0.0,
+      "primaryMoodViolationRate" : 0.0
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "dark",
+      "sessions" : 80,
+      "recommendations" : 39,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 1.0,
+      "primaryMoodViolationRate" : 0.0
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "eerie",
+      "sessions" : 80,
+      "recommendations" : 263,
+      "fullShortlistRate" : 0.425,
+      "meanRuleMoodCoverage" : 0.5418250950570342,
+      "primaryMoodViolationRate" : 0.33840304182509506
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "bittersweet",
+      "sessions" : 40,
+      "recommendations" : 196,
+      "fullShortlistRate" : 0.925,
+      "meanRuleMoodCoverage" : 0.5816326530612245,
+      "primaryMoodViolationRate" : 0.34183673469387754
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "hopeful",
+      "sessions" : 40,
+      "recommendations" : 198,
+      "fullShortlistRate" : 0.975,
+      "meanRuleMoodCoverage" : 0.5277777777777778,
+      "primaryMoodViolationRate" : 0.5454545454545454
+    }, {
+      "dimension" : "primaryMood",
+      "value" : "any",
+      "sessions" : 40,
+      "recommendations" : 200,
+      "fullShortlistRate" : 1.0,
+      "meanRuleMoodCoverage" : 0.0,
+      "primaryMoodViolationRate" : 0.0
+    }, {
+      "dimension" : "personaTemperature",
+      "value" : "cold",
+      "sessions" : 200,
+      "recommendations" : 478,
+      "fullShortlistRate" : 0.325,
+      "meanRuleMoodCoverage" : 0.5700836820083682,
+      "primaryMoodViolationRate" : 0.20502092050209206
+    }, {
+      "dimension" : "personaTemperature",
+      "value" : "warm",
+      "sessions" : 600,
+      "recommendations" : 1577,
+      "fullShortlistRate" : 0.40166666666666667,
+      "meanRuleMoodCoverage" : 0.6011414077362079,
+      "primaryMoodViolationRate" : 0.20735573874445148
+    }, {
+      "dimension" : "evidenceSource",
+      "value" : "KEYWORD_BACKED",
+      "sessions" : 0,
+      "recommendations" : 1175,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 0.6540425531914894,
+      "primaryMoodViolationRate" : 0.3038297872340426
+    }, {
+      "dimension" : "evidenceSource",
+      "value" : "OVERVIEW_ONLY",
+      "sessions" : 0,
+      "recommendations" : 185,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 0.7351351351351352,
+      "primaryMoodViolationRate" : 0.16216216216216217
+    }, {
+      "dimension" : "evidenceSource",
+      "value" : "GENRE_ONLY",
+      "sessions" : 0,
+      "recommendations" : 495,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 0.6383838383838384,
+      "primaryMoodViolationRate" : 0.07676767676767676
+    }, {
+      "dimension" : "evidenceSource",
+      "value" : "NONE",
+      "sessions" : 0,
+      "recommendations" : 200,
+      "fullShortlistRate" : 0.0,
+      "meanRuleMoodCoverage" : 0.0,
+      "primaryMoodViolationRate" : 0.0
+    } ]
+  }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import FeedbackBanner from "@/components/FeedbackBanner";
@@ -16,9 +16,43 @@ import {
   POSTER_PLACEHOLDER,
   posterUrl,
   type RecommendationMood,
+  type RecommendationReleaseEra,
   type RecommendationResponse,
   type RecommendationRuntimePreference,
 } from "@/lib/types";
+
+const STARTER_GENRE_OPTIONS = [
+  "action",
+  "adventure",
+  "animation",
+  "comedy",
+  "crime",
+  "drama",
+  "fantasy",
+  "horror",
+  "mystery",
+  "romance",
+  "science fiction",
+  "thriller",
+] as const;
+
+const STARTER_KEYWORD_OPTIONS = [
+  "coming of age",
+  "courtroom",
+  "found family",
+  "heist",
+  "mind game",
+  "mystery box",
+  "psychological",
+  "revenge",
+  "road trip",
+  "slow burn",
+  "space",
+  "survival",
+  "time travel",
+] as const;
+
+const MAX_SELECTED_MOODS = 5;
 
 const MOOD_OPTIONS: { value: RecommendationMood; label: string; description: string }[] = [
   { value: "any", label: "Open to anything", description: "No mood bias, just strong all-around picks." },
@@ -44,6 +78,102 @@ const RUNTIME_OPTIONS: { value: RecommendationRuntimePreference; label: string; 
   { value: "medium", label: "Medium", description: "A balanced pick for a standard movie session." },
   { value: "long", label: "Long", description: "For when you want a bigger, more immersive watch." },
 ];
+
+const RELEASE_ERA_OPTIONS: { value: RecommendationReleaseEra; label: string }[] = [
+  { value: "any", label: "Any era" },
+  { value: "pre-1980", label: "Before 1980" },
+  { value: "1980s", label: "1980s" },
+  { value: "1990s", label: "1990s" },
+  { value: "2000s", label: "2000s" },
+  { value: "2010s", label: "2010s" },
+  { value: "2020s", label: "2020s" },
+];
+
+const PICK_FOR_ME_SESSION_KEY = "atlaswatch:pick-for-me:v1";
+
+interface PersistedPickForMeState {
+  authenticated: boolean;
+  selectedMoods: RecommendationMood[];
+  runtimePreference: RecommendationRuntimePreference;
+  selectedReleaseEras: RecommendationReleaseEra[];
+  limit: number;
+  starterGenres: string[];
+  starterKeywords: string[];
+  seedMovieInput: string;
+  results: RecommendationResponse[];
+  refreshToken?: string;
+  seenTmdbIds: number[];
+}
+
+function readPersistedState(authenticated: boolean): PersistedPickForMeState | null {
+  try {
+    const raw = window.sessionStorage.getItem(PICK_FOR_ME_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedPickForMeState>;
+    if (
+      parsed.authenticated !== authenticated ||
+      !Array.isArray(parsed.selectedMoods) ||
+      !Array.isArray(parsed.selectedReleaseEras) ||
+      !Array.isArray(parsed.results) ||
+      typeof parsed.runtimePreference !== "string" ||
+      typeof parsed.limit !== "number"
+    ) {
+      return null;
+    }
+    return {
+      authenticated,
+      selectedMoods: parsed.selectedMoods,
+      runtimePreference: parsed.runtimePreference as RecommendationRuntimePreference,
+      selectedReleaseEras: parsed.selectedReleaseEras,
+      limit: parsed.limit,
+      starterGenres: Array.isArray(parsed.starterGenres) ? parsed.starterGenres : [],
+      starterKeywords: Array.isArray(parsed.starterKeywords) ? parsed.starterKeywords : [],
+      seedMovieInput: typeof parsed.seedMovieInput === "string" ? parsed.seedMovieInput : "",
+      results: parsed.results,
+      refreshToken: parsed.refreshToken,
+      seenTmdbIds: Array.isArray(parsed.seenTmdbIds)
+        ? parsed.seenTmdbIds.filter((id): id is number => Number.isInteger(id) && id > 0).slice(-50)
+        : parsed.results.map((result) => result.tmdbId).slice(-50),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistState(state: PersistedPickForMeState) {
+  try {
+    window.sessionStorage.setItem(PICK_FOR_ME_SESSION_KEY, JSON.stringify(state));
+  } catch {
+    // Recommendation persistence is a navigation convenience, not a request prerequisite.
+  }
+}
+
+function createRefreshToken() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `refresh-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function parseSeedTmdbIds(value: string) {
+  const ids = value.match(/\d+/g) ?? [];
+
+  return Array.from(
+    new Set(
+      ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )
+  ).slice(0, 5);
+}
+
+function formatStarterLabel(value: string) {
+  return value
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 function getRecommendationErrorCopy(error: unknown) {
   if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
@@ -80,11 +210,40 @@ export default function PickForMePage() {
   const { isAuthenticated } = useAuth();
   const [selectedMoods, setSelectedMoods] = useState<RecommendationMood[]>(["any"]);
   const [runtimePreference, setRuntimePreference] = useState<RecommendationRuntimePreference>("any");
+  const [selectedReleaseEras, setSelectedReleaseEras] = useState<RecommendationReleaseEra[]>(["any"]);
   const [limit, setLimit] = useState(5);
+  const [starterGenres, setStarterGenres] = useState<string[]>([]);
+  const [starterKeywords, setStarterKeywords] = useState<string[]>([]);
+  const [seedMovieInput, setSeedMovieInput] = useState("");
   const [results, setResults] = useState<RecommendationResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [lastRefreshToken, setLastRefreshToken] = useState<string | undefined>(undefined);
   const [feedback, setFeedback] = useState<{ tone: "success" | "error" | "info"; title: string; message: string } | null>(null);
+  const [sessionStateReady, setSessionStateReady] = useState(false);
+  const skipRestoredAutoLoad = useRef(false);
+  const sessionSeenTmdbIds = useRef<number[]>([]);
+  const deferredSeedMovieInput = useDeferredValue(seedMovieInput);
+  const seedTmdbIds = useMemo(() => parseSeedTmdbIds(deferredSeedMovieInput), [deferredSeedMovieInput]);
+
+  useEffect(() => {
+    const persisted = readPersistedState(isAuthenticated);
+    if (persisted) {
+      setSelectedMoods(persisted.selectedMoods);
+      setRuntimePreference(persisted.runtimePreference);
+      setSelectedReleaseEras(persisted.selectedReleaseEras);
+      setLimit(persisted.limit);
+      setStarterGenres(persisted.starterGenres);
+      setStarterKeywords(persisted.starterKeywords);
+      setSeedMovieInput(persisted.seedMovieInput);
+      setResults(persisted.results);
+      setLastRefreshToken(persisted.refreshToken);
+      sessionSeenTmdbIds.current = persisted.seenTmdbIds;
+      setLoading(false);
+      skipRestoredAutoLoad.current = true;
+    }
+    setSessionStateReady(true);
+  }, [isAuthenticated]);
 
   const activeMoods = useMemo(
     () => MOOD_OPTIONS.filter((option) => selectedMoods.includes(option.value)),
@@ -93,6 +252,18 @@ export default function PickForMePage() {
   const activeRuntime = useMemo(
     () => RUNTIME_OPTIONS.find((option) => option.value === runtimePreference) ?? RUNTIME_OPTIONS[0],
     [runtimePreference]
+  );
+  const activeReleaseEras = useMemo(
+    () => RELEASE_ERA_OPTIONS.filter((option) => selectedReleaseEras.includes(option.value)),
+    [selectedReleaseEras]
+  );
+  const activeStarterGenres = useMemo(
+    () => STARTER_GENRE_OPTIONS.filter((genre) => starterGenres.includes(genre)),
+    [starterGenres]
+  );
+  const activeStarterKeywords = useMemo(
+    () => STARTER_KEYWORD_OPTIONS.filter((keyword) => starterKeywords.includes(keyword)),
+    [starterKeywords]
   );
   const selectionSummary = useMemo(() => {
     const moodSummary =
@@ -103,9 +274,13 @@ export default function PickForMePage() {
       activeRuntime.value === "any"
         ? "any runtime"
         : `${activeRuntime.label.toLowerCase()} runtime`;
+    const eraSummary =
+      activeReleaseEras.length === 1 && activeReleaseEras[0]?.value === "any"
+        ? "any era"
+        : activeReleaseEras.map((option) => option.label).join(" or ");
 
-    return `${moodSummary} with ${runtimeSummary}`;
-  }, [activeMoods, activeRuntime]);
+    return `${moodSummary} with ${runtimeSummary}, from ${eraSummary}`;
+  }, [activeMoods, activeReleaseEras, activeRuntime]);
 
   const resultSummary = useMemo(() => {
     if (results.length === 0) {
@@ -123,7 +298,14 @@ export default function PickForMePage() {
     async (options?: {
       moods?: RecommendationMood[];
       runtimePreference?: RecommendationRuntimePreference;
+      releaseEras?: RecommendationReleaseEra[];
       limit?: number;
+      starterGenres?: string[];
+      starterKeywords?: string[];
+      seedTmdbIds?: number[];
+      seedMovieInput?: string;
+      refreshToken?: string;
+      seenTmdbIds?: number[];
     }) => {
       setLoading(true);
       setError(null);
@@ -131,14 +313,39 @@ export default function PickForMePage() {
       const request = {
         moods: options?.moods ?? selectedMoods,
         runtimePreference: options?.runtimePreference ?? runtimePreference,
+        releaseEras: options?.releaseEras ?? selectedReleaseEras,
         limit: options?.limit ?? limit,
+        refreshToken: options?.refreshToken,
+        starterGenres: isAuthenticated ? undefined : options?.starterGenres ?? starterGenres,
+        starterKeywords: isAuthenticated ? undefined : options?.starterKeywords ?? starterKeywords,
+        seedTmdbIds: isAuthenticated ? undefined : options?.seedTmdbIds ?? seedTmdbIds,
+        seenTmdbIds: options?.seenTmdbIds ?? [],
       };
+      setLastRefreshToken(request.refreshToken);
 
       try {
         const data = isAuthenticated
           ? await getRecommendations(request)
           : await getColdStartRecommendations(request);
+        const nextSeenTmdbIds = Array.from(new Set([
+          ...(request.seenTmdbIds ?? []),
+          ...data.map((recommendation) => recommendation.tmdbId),
+        ])).slice(-50);
+        sessionSeenTmdbIds.current = nextSeenTmdbIds;
         setResults(data);
+        persistState({
+          authenticated: isAuthenticated,
+          selectedMoods: request.moods,
+          runtimePreference: request.runtimePreference,
+          selectedReleaseEras: request.releaseEras,
+          limit: request.limit,
+          starterGenres: request.starterGenres ?? [],
+          starterKeywords: request.starterKeywords ?? [],
+          seedMovieInput: options?.seedMovieInput ?? seedMovieInput,
+          results: data,
+          refreshToken: request.refreshToken,
+          seenTmdbIds: nextSeenTmdbIds,
+        });
         setFeedback(null);
       } catch (loadError) {
         setResults([]);
@@ -152,16 +359,27 @@ export default function PickForMePage() {
         setLoading(false);
       }
     },
-    [isAuthenticated, limit, runtimePreference, selectedMoods]
+    [isAuthenticated, limit, runtimePreference, seedMovieInput, seedTmdbIds, selectedMoods, selectedReleaseEras, starterGenres, starterKeywords]
   );
 
   useEffect(() => {
+    if (!sessionStateReady) return;
+    if (skipRestoredAutoLoad.current) {
+      skipRestoredAutoLoad.current = false;
+      return;
+    }
     void loadRecommendations({
       moods: selectedMoods,
       runtimePreference,
+      releaseEras: selectedReleaseEras,
       limit,
+      starterGenres,
+      starterKeywords,
+      seedTmdbIds,
+      seedMovieInput,
+      seenTmdbIds: [],
     });
-  }, [isAuthenticated, limit, loadRecommendations, runtimePreference, selectedMoods]);
+  }, [isAuthenticated, limit, loadRecommendations, runtimePreference, seedMovieInput, seedTmdbIds, selectedMoods, selectedReleaseEras, sessionStateReady, starterGenres, starterKeywords]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -172,17 +390,40 @@ export default function PickForMePage() {
   const resetFilters = () => {
     setSelectedMoods(["any"]);
     setRuntimePreference("any");
+    setSelectedReleaseEras(["any"]);
     setLimit(5);
+    setStarterGenres([]);
+    setStarterKeywords([]);
+    setSeedMovieInput("");
+    setLastRefreshToken(undefined);
+    sessionSeenTmdbIds.current = [];
     void loadRecommendations({
       moods: ["any"],
       runtimePreference: "any",
+      releaseEras: ["any"],
       limit: 5,
+      starterGenres: [],
+      starterKeywords: [],
+      seedTmdbIds: [],
+      seedMovieInput: "",
+      seenTmdbIds: [],
     });
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    await loadRecommendations();
+    await loadRecommendations({
+      moods: selectedMoods,
+      runtimePreference,
+      releaseEras: selectedReleaseEras,
+      limit,
+      starterGenres,
+      starterKeywords,
+      seedTmdbIds,
+      seedMovieInput,
+      refreshToken: createRefreshToken(),
+      seenTmdbIds: sessionSeenTmdbIds.current,
+    });
   };
 
   const toggleMood = (value: RecommendationMood) => {
@@ -197,7 +438,52 @@ export default function PickForMePage() {
         return next.length > 0 ? next : ["any"];
       }
 
+      // Mirrors the server-side cap. Blending more than this is not a
+      // meaningful request and the API rejects it.
+      if (withoutAny.length >= MAX_SELECTED_MOODS) {
+        return current;
+      }
+
       return [...withoutAny, value];
+    });
+  };
+
+  const toggleReleaseEra = (value: RecommendationReleaseEra) => {
+    setSelectedReleaseEras((current) => {
+      if (value === "any") {
+        return ["any"];
+      }
+
+      const withoutAny = current.filter((item) => item !== "any");
+      if (withoutAny.includes(value)) {
+        const next = withoutAny.filter((item) => item !== value);
+        return next.length > 0 ? next : ["any"];
+      }
+      return [...withoutAny, value];
+    });
+  };
+
+  const toggleStarterGenre = (genre: string) => {
+    setStarterGenres((current) => {
+      if (current.includes(genre)) {
+        return current.filter((item) => item !== genre);
+      }
+      if (current.length >= 5) {
+        return current;
+      }
+      return [...current, genre];
+    });
+  };
+
+  const toggleStarterKeyword = (keyword: string) => {
+    setStarterKeywords((current) => {
+      if (current.includes(keyword)) {
+        return current.filter((item) => item !== keyword);
+      }
+      if (current.length >= 10) {
+        return current;
+      }
+      return [...current, keyword];
     });
   };
 
@@ -214,7 +500,7 @@ export default function PickForMePage() {
 
   const loadingDescription = isAuthenticated
     ? `AtlasWatch is ranking up to ${limit} picks for ${selectionSummary}, while blending in your ratings, reviews, and watchlist signals.`
-    : `AtlasWatch is pulling up to ${limit} wider-catalog picks for ${selectionSummary}. Sign in anytime to fold your personal taste into the ranking.`;
+    : `AtlasWatch is pulling up to ${limit} wider-catalog picks for ${selectionSummary}.${activeStarterGenres.length > 0 || activeStarterKeywords.length > 0 || seedTmdbIds.length > 0 ? " Your starter hints are being folded into this cold-start pass." : " Sign in anytime to fold your personal taste into the ranking."}`;
 
   const topPick = results[0];
   const remainingPicks = results.slice(1);
@@ -230,7 +516,10 @@ export default function PickForMePage() {
           actionLabel={copy.actionLabel}
           onAction={() => {
             if (copy.action === "retry") {
-              void loadRecommendations();
+              void loadRecommendations({
+                refreshToken: lastRefreshToken,
+                seenTmdbIds: sessionSeenTmdbIds.current,
+              });
             } else {
               router.push(copy.action);
             }
@@ -265,14 +554,27 @@ export default function PickForMePage() {
                 {isAuthenticated ? "Personalized mode" : "Preview mode"}
               </span>
               <span className="app-pill bg-black/20">{activeRuntime.label}</span>
+              <span className="app-pill bg-black/20">
+                {activeReleaseEras.map((option) => option.label).join(" / ")}
+              </span>
               {activeMoods.slice(0, 3).map((option) => (
                 <span key={option.value} className="app-pill bg-black/20">
                   {option.label}
                 </span>
               ))}
+              {!isAuthenticated && activeStarterGenres.slice(0, 2).map((genre) => (
+                <span key={genre} className="app-pill border-cyan-400/15 bg-cyan-400/8 text-cyan-100">
+                  {formatStarterLabel(genre)}
+                </span>
+              ))}
+              {!isAuthenticated && activeStarterKeywords.slice(0, 2).map((keyword) => (
+                <span key={keyword} className="app-pill border-cyan-400/15 bg-cyan-400/8 text-cyan-100">
+                  {formatStarterLabel(keyword)}
+                </span>
+              ))}
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <div className="rounded-[1.2rem] border border-slate-700/35 bg-white/5 p-4">
                 <p className="text-sm font-semibold text-white">Current vibe</p>
                 <p className="mt-2 text-sm text-slate-300">
@@ -289,6 +591,17 @@ export default function PickForMePage() {
                 <p className="mt-2 text-sm text-slate-300">{activeRuntime.label}</p>
                 <p className="mt-1 text-sm text-slate-400">{activeRuntime.description}</p>
               </div>
+              <div className="rounded-[1.2rem] border border-slate-700/35 bg-white/5 p-4">
+                <p className="text-sm font-semibold text-white">Release era</p>
+                <p className="mt-2 text-sm text-slate-300">
+                  {activeReleaseEras.map((option) => option.label).join(", ")}
+                </p>
+                <p className="mt-1 text-sm text-slate-400">
+                  {selectedReleaseEras.includes("any")
+                    ? "Release year is not part of the decision."
+                    : "Only movies from the selected periods are eligible."}
+                </p>
+              </div>
             </div>
 
             {isAuthenticated ? (
@@ -304,6 +617,9 @@ export default function PickForMePage() {
                 <p className="mt-2 text-sm text-cyan-50/85">
                   You are seeing wider-catalog picks. Sign in if you want AtlasWatch to blend in your own ratings,
                   reviews, and watchlist taste signals.
+                </p>
+                <p className="mt-2 text-sm text-cyan-50/70">
+                  You can also give AtlasWatch a few starter genres, themes, or seed movies below to make the first shortlist less generic.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button type="button" onClick={() => router.push("/login")} className="btn-secondary">
@@ -361,8 +677,30 @@ export default function PickForMePage() {
             </div>
 
             <div className="mt-6">
+              <p className="text-sm font-semibold text-white">3. Which release eras are you open to?</p>
+              <p className="mt-2 text-sm text-slate-400">Optional. Choose one or more decades; AtlasWatch will treat them as a strict filter.</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {RELEASE_ERA_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => toggleReleaseEra(option.value)}
+                    aria-pressed={selectedReleaseEras.includes(option.value)}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                      selectedReleaseEras.includes(option.value)
+                        ? "bg-amber-400/14 text-amber-100"
+                        : "border border-slate-700/35 bg-white/5 text-slate-300 hover:bg-white/8 hover:text-white"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6">
               <label className="mb-2 block text-sm font-semibold text-white" htmlFor="result-limit">
-                3. How many picks should AtlasWatch return?
+                4. How many picks should AtlasWatch return?
               </label>
               <select
                 id="result-limit"
@@ -379,9 +717,83 @@ export default function PickForMePage() {
               <p className="mt-2 text-sm text-slate-400">{resultSummary}</p>
             </div>
 
+            {!isAuthenticated && (
+              <div className="mt-6 space-y-6">
+                <div>
+                  <p className="text-sm font-semibold text-white">5. Give AtlasWatch a few starter genres</p>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Optional. Pick up to five so the first shortlist has a stronger starting shape.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {STARTER_GENRE_OPTIONS.map((genre) => (
+                      <button
+                        key={genre}
+                        type="button"
+                        onClick={() => toggleStarterGenre(genre)}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          starterGenres.includes(genre)
+                            ? "border border-cyan-400/30 bg-cyan-400/14 text-cyan-100"
+                            : "border border-slate-700/35 bg-white/5 text-slate-300 hover:bg-white/8 hover:text-white"
+                        }`}
+                      >
+                        {formatStarterLabel(genre)}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-sm text-slate-500">{starterGenres.length}/5 selected</p>
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-white">6. Add a few story themes</p>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Optional. These help the cold-start ranking distinguish between broad genres.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {STARTER_KEYWORD_OPTIONS.map((keyword) => (
+                      <button
+                        key={keyword}
+                        type="button"
+                        onClick={() => toggleStarterKeyword(keyword)}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          starterKeywords.includes(keyword)
+                            ? "border border-cyan-400/30 bg-cyan-400/14 text-cyan-100"
+                            : "border border-slate-700/35 bg-white/5 text-slate-300 hover:bg-white/8 hover:text-white"
+                        }`}
+                      >
+                        {formatStarterLabel(keyword)}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-sm text-slate-500">{starterKeywords.length}/10 selected</p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-white" htmlFor="starter-seed-movies">
+                    7. Seed a few movies you already know
+                  </label>
+                  <input
+                    id="starter-seed-movies"
+                    type="text"
+                    value={seedMovieInput}
+                    onChange={(event) => setSeedMovieInput(event.target.value)}
+                    placeholder="Paste TMDB IDs or AtlasWatch movie links, separated by commas"
+                    className="field-input"
+                  />
+                  <p className="mt-2 text-sm text-slate-400">
+                    Optional. AtlasWatch will read up to five TMDB IDs from this field.
+                  </p>
+                  {seedTmdbIds.length > 0 && (
+                    <p className="mt-2 text-sm text-cyan-100">
+                      Using seed movies: {seedTmdbIds.join(", ")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="mt-8 flex flex-wrap gap-3">
               <button type="submit" disabled={loading} className="btn-primary">
-                {loading ? "Refreshing shortlist..." : "Refresh shortlist"}
+                {loading ? "Refreshing shortlist..." : "Try another mix"}
               </button>
               <button
                 type="button"
@@ -439,7 +851,9 @@ export default function PickForMePage() {
                 <p className="app-copy-muted mt-2 text-sm">
                   {isAuthenticated
                     ? "These results are ranked using the wider catalog plus your ratings, reviews, and watchlist signals."
-                    : "These results come from the wider catalog. Sign in to blend your own watch history and saved taste into the ranking."}
+                    : activeStarterGenres.length > 0 || activeStarterKeywords.length > 0 || seedTmdbIds.length > 0
+                      ? "These results come from the wider catalog, guided by your starter genres, themes, and seed-movie hints."
+                      : "These results come from the wider catalog. Sign in to blend your own watch history and saved taste into the ranking."}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -456,6 +870,16 @@ export default function PickForMePage() {
                 {activeMoods.slice(0, 2).map((option) => (
                   <span key={option.value} className="app-pill bg-black/20">
                     {option.label}
+                  </span>
+                ))}
+                {!isAuthenticated && activeStarterGenres.slice(0, 1).map((genre) => (
+                  <span key={genre} className="app-pill border-cyan-400/15 bg-cyan-400/8 text-cyan-100">
+                    {formatStarterLabel(genre)}
+                  </span>
+                ))}
+                {!isAuthenticated && activeStarterKeywords.slice(0, 1).map((keyword) => (
+                  <span key={keyword} className="app-pill border-cyan-400/15 bg-cyan-400/8 text-cyan-100">
+                    {formatStarterLabel(keyword)}
                   </span>
                 ))}
               </div>

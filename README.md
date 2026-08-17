@@ -1,6 +1,8 @@
 # AtlasWatch
 
-AtlasWatch is a full-stack movie discovery and tracking app built with a Spring Boot backend and a Next.js frontend. Users can browse trending titles, search TMDB-powered results, open movie details, create reviews, and manage a personal watchlist.
+AtlasWatch is a full-stack movie discovery, tracking, and recommendation platform built with Spring Boot and Next.js. It combines TMDB catalog ingestion with a local PostgreSQL search index, explainable hybrid ranking, account-based reviews, and personal watchlists.
+
+Its recommender combines explicit session constraints, review/watchlist taste, semantic content similarity, confidence-adjusted catalog quality, and a compact offline-trained collaborative model. Recommendation changes are checked with deterministic regression tests and chronological MovieLens evaluation; a versioned human-intent rubric is ready for blind labeling rather than being replaced by screenshots.
 
 The MVP keeps browsing public, while account-only actions such as watchlist updates and review submission require authentication.
 
@@ -11,10 +13,14 @@ The MVP keeps browsing public, while account-only actions such as watchlist upda
 - login, logout, refresh-token session handling
 - forgot-password flow with emailed reset codes
 - review creation for authenticated users
-- watchlist management with `PLAN_TO_WATCH`, `WATCHING`, and `WATCHED`
+- watchlist management with `PLAN_TO_WATCH` and `WATCHED`
+- **personalised movie recommendations** - ranked from seven retrieval channels using semantic mood, runtime/era intent, review/watchlist taste, Bayesian quality, content similarity, 64-factor collaborative retrieval, and diversity calibration
+- cold-start recommendations for unauthenticated or new users (no history required)
 - PostgreSQL persistence for core app data
-- Redis-backed caching for selected movie lookups
+- Redis-backed caching for trending and recommendation flows
 - Docker Compose setup for local full-stack runs
+- CSRF-protected cookie authentication with refresh-token rotation
+- Resilience4j retry and circuit-breaker protection for TMDB calls
 
 ## Architecture
 
@@ -54,6 +60,7 @@ Your UML/domain model is included below because it gives the clearest overview o
 - Spring Security
 - Spring Data JPA
 - Spring Data Redis
+- Flyway
 - Spring Mail
 - JWT
 
@@ -66,7 +73,7 @@ Your UML/domain model is included below because it gives the clearest overview o
 ## Repository structure
 
 ```text
-ai-travel-recommendation/
+atlaswatch/
 |-- moviehub-frontend/         # Next.js frontend
 |-- src/main/java/             # Spring Boot application code
 |-- src/test/java/             # backend unit/web/integration-style tests
@@ -77,33 +84,66 @@ ai-travel-recommendation/
 `-- README.md
 ```
 
+## Developer knowledge base
+
+- [`CHANGELOG.md`](CHANGELOG.md) records changes, bug investigations, root causes, and verification.
+- [`DECISIONS.md`](DECISIONS.md) explains important engineering choices and trade-offs.
+- [`FLOW.md`](FLOW.md) traces the system's request, authentication, persistence, and startup flows.
+- [`AGENTS.md`](AGENTS.md) requires future contributors and coding agents to keep those documents current.
+
 ## Environment configuration
 
-The backend expects a root-level `.env` file in local development. Use `.env.example` as the template.
+The backend reads a root-level `.env` file. Copy `.env.example` to `.env` and fill in real values.
 
-Important variables include:
+Key variables:
 
-- `DB_NAME`
-- `SPRING_DATABASE_URL`
-- `SPRING_DATABASE_USERNAME`
-- `SPRING_DATABASE_PASSWORD`
-- `MAIL_HOST`
-- `EMAIL`
-- `EMAIL_PASSWORD`
-- `EXPIRATION_TIME_FOR_REFRESH_TOKEN`
-- `CLIENT_ID`
-- `CLIENT_SECRET`
-- `REDIS_HOST`
-- `REDIS_PORT`
-- `TMDB_API_TOKEN`
-- `PUBLIC_KEY`
-- `PRIVATE_KEY`
+| Variable | Docker Compose | Local (`mvn spring-boot:run`) |
+|---|---|---|
+| `DB_NAME` | name of the Postgres database | same |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://db:5432/<db>` (set by compose) | `jdbc:postgresql://localhost:5432/<db>` |
+| `SPRING_DATABASE_USERNAME` | Postgres user | same |
+| `SPRING_DATABASE_PASSWORD` | Postgres password | same |
+| `REDIS_HOST` | **not used** - compose hardcodes `redis` (service name) | `localhost` |
+| `REDIS_PORT` | `6379` | `6379` |
+| `PUBLIC_KEY`, `PRIVATE_KEY` | optional DER values for hosted environments | optional |
+| `PUBLIC_KEY_PATH`, `PRIVATE_KEY_PATH` | Compose mounts root PEM files | defaults to root PEM files |
+| `TMDB_API_TOKEN` | TMDB bearer token | same |
+| `MAIL_HOST`, `EMAIL`, `EMAIL_PASSWORD` | SMTP credentials | same |
+| `CLIENT_ID`, `CLIENT_SECRET` | Google OAuth2 credentials | same |
+| `ATLASWATCH_ALLOWED_ORIGIN_PATTERNS` | frontend origin(s), comma-separated | local wildcard defaults |
+
+See `.env.example` for generation instructions for `PUBLIC_KEY` / `PRIVATE_KEY`.
 
 The frontend can optionally use `moviehub-frontend/.env.example` for local standalone runs:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
+
+## Database migrations
+
+AtlasWatch now uses Flyway for schema management. The baseline migration lives at:
+
+- `src/main/resources/db/migration/V1__initial_schema.sql`
+
+What this means in practice:
+
+- schema changes are versioned in the repo instead of being created implicitly by Hibernate
+- Hibernate now validates the schema instead of mutating it on startup
+- PostgreSQL-specific features such as the full-text-search `search_vector` column and GIN index are created explicitly
+
+Current backend settings:
+
+- `spring.jpa.hibernate.ddl-auto=validate`
+- `spring.flyway.baseline-on-migrate=true`
+
+How to work with it:
+
+- for a fresh local database, start the app and Flyway will apply `V1__initial_schema.sql`
+- for an existing non-empty local database, Flyway will baseline it on first startup and then manage future migrations from there
+- for future schema changes, add a new migration file like `V2__...sql` instead of relying on Hibernate schema updates
+
+If you want the cleanest verification path, create a fresh Postgres database and start the backend once to confirm Flyway can build the schema from scratch.
 
 ## Running the app
 
@@ -124,6 +164,9 @@ Services:
 - backend: [http://localhost:8080](http://localhost:8080)
 - postgres: `localhost:5432`
 - redis: `localhost:6379`
+
+Compose includes health checks for all four services and waits for PostgreSQL,
+Redis, and the backend before starting dependent containers.
 
 ### Option 2: Run backend and frontend separately
 
@@ -172,17 +215,39 @@ For the current MVP, the important end-to-end flows are:
 - submit a review when authenticated
 - log out and confirm auth-only actions are blocked again
 
+The frontend obtains a CSRF token before mutations and retries one failed API
+request after rotating an expired access token through `/auth/refresh`.
+
 ## Testing
 
 ### Backend
 
-Focused auth tests:
+Full backend suite:
 
 ```bash
-mvn "-Dtest=AuthServiceTest,AuthControllerTest" test
+mvn test
 ```
 
-Full package check without running the infrastructure-bound smoke test:
+The suite covers controllers, service behavior, recommendation scoring and
+evaluation, Redis serialization, TMDB resilience, validation, and CSRF
+enforcement. One infrastructure-bound application-context smoke test is
+explicitly skipped. The 800-session catalog evaluator is also opt-in; the
+remaining tests must pass with zero failures.
+
+The session-intent baseline uses the real local catalog without reading or
+changing user, cache, or impression state:
+
+```powershell
+$env:ATLASWATCH_RUN_LIVE_EVALUATION = 'true'
+mvn "-Dtest=RecommendationSessionBatchEvaluationTest" test
+```
+
+It requires the normal PostgreSQL and Redis environment variables. See
+`docs/evaluation/session-intent-batch-evaluation.md` for the Docker-network
+variant, metric definitions, and interpretation limits. The frozen report is
+under `docs/evaluation/runs/session-intent-v1/`.
+
+Package check:
 
 ```bash
 mvn -q -DskipTests package
@@ -192,6 +257,9 @@ mvn -q -DskipTests package
 
 ```bash
 cd moviehub-frontend
+npm ci
+npm run lint
+npm exec tsc --noEmit
 npm run build
 ```
 
@@ -199,6 +267,7 @@ npm run build
 
 ### Auth
 
+- `GET /auth/csrf`
 - `POST /auth/register`
 - `POST /auth/login`
 - `POST /auth/verify`
@@ -221,6 +290,12 @@ npm run build
 - `PUT /api/reviews/{reviewId}`
 - `DELETE /api/reviews/{reviewId}`
 
+### Recommendations
+
+- `POST /api/recommendations` — personalised ranked list for an authenticated user
+- `GET /api/recommendations/cold-start` — genre/mood-based list requiring no login or history
+- `POST /api/recommendations/solo` — single-pick endpoint (deprecated, kept for compatibility)
+
 ### Watchlist
 
 - `GET /api/watchlist`
@@ -242,4 +317,4 @@ npm run build
 
 ## MVP status
 
-AtlasWatch is in a strong MVP state: the core browse-search-track-review loop works, authentication is in place, password recovery exists, and Docker can run the stack locally. The remaining work is mostly polish, deployment hardening, and post-MVP improvements rather than missing core functionality.
+AtlasWatch is an application-ready local MVP: the browse-search-track-review-recommend loop is implemented, authentication mutations are CSRF protected, sessions support refresh-token rotation, and automated backend/frontend checks are available in CI. A public hosted deployment and production traffic measurements are intentionally not claimed in this repository yet.

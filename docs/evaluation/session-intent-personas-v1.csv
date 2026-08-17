@@ -1,0 +1,5 @@
+benchmark_version,persona_id,temperature,starter_genres,starter_keywords,notes
+v1,cold_general,cold,,,No persisted or synthetic taste history
+v1,warm_thriller,warm,thriller|mystery|crime,suspense|conspiracy|nonlinear,Thriller and mystery affinity
+v1,warm_comfort,warm,comedy|family|animation,friendship|feel good|found family,Comfort and family affinity
+v1,warm_cerebral,warm,science fiction|drama|history,identity|memory|philosophy,Cerebral and reflective affinity

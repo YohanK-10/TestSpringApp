@@ -6,6 +6,7 @@ export interface MovieResponse {
   posterPath: string | null;
   backdropPath: string | null;
   rating: number;
+  voteCount: number | null;
   runtime: number | null;
   popularity: number;
   genres: string[];
@@ -64,6 +65,7 @@ export interface TmdbMovie {
   backdrop_path: string | null;
   release_date: string;
   vote_average: number;
+  vote_count: number;
   genre_ids: number[];
 }
 
@@ -97,11 +99,25 @@ export type RecommendationMood =
   | "inspiring";
 
 export type RecommendationRuntimePreference = "any" | "short" | "medium" | "long";
+export type RecommendationReleaseEra =
+  | "any"
+  | "pre-1980"
+  | "1980s"
+  | "1990s"
+  | "2000s"
+  | "2010s"
+  | "2020s";
 
 export interface RecommendationRequest {
   moods: RecommendationMood[];
   runtimePreference: RecommendationRuntimePreference;
+  releaseEras: RecommendationReleaseEra[];
   limit?: number;
+  refreshToken?: string;
+  starterGenres?: string[];
+  starterKeywords?: string[];
+  seedTmdbIds?: number[];
+  seenTmdbIds?: number[];
 }
 
 export interface RecommendationResponse {
@@ -112,6 +128,7 @@ export interface RecommendationResponse {
   posterPath: string | null;
   backdropPath: string | null;
   rating: number | null;
+  voteCount: number | null;
   runtime: number | null;
   popularity: number | null;
   genres: string[];
@@ -131,6 +148,7 @@ export interface SoloRecommendationResponse {
   posterPath: string | null;
   backdropPath: string | null;
   rating: number | null;
+  voteCount: number | null;
   runtime: number | null;
   popularity: number | null;
   genres: string[];

@@ -49,3 +49,17 @@ yarn-error.log*
 jwt-private.pem
 jwt-public.pem
 .claude/
+
+# Local audit, generated handoff, and private career artifacts
+.comparison/
+**/__pycache__/
+*.pyc
+experiments/**/data/
+experiments/**/artifacts/*.json
+experiments/**/artifacts/*.json.gz
+!experiments/**/artifacts/*-report.json
+experiments/**/.venv/
+docs/AtlasWatch_Codebase_Handoff_*.docx
+docs/AtlasWatch_Recommendation_Checklist.docx
+docs/*_Resume.pdf
+docs/create_atlaswatch_handoff_doc.py

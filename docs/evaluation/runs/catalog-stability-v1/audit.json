@@ -1,0 +1,269 @@
+{
+  "auditVersion" : "catalog-stability-v1",
+  "generatedAt" : "2026-08-16T19:22:19.105785100Z",
+  "database" : "atlaswatch_catalog_audit_phase12",
+  "cycle" : {
+    "popularPages" : 10,
+    "topRatedPages" : 10,
+    "trendingPages" : 5,
+    "discoverPagesPerGenre" : 3,
+    "discoverGenreIds" : [ 28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 53, 10752, 37 ],
+    "rateLimitMs" : 0
+  },
+  "before" : {
+    "total" : 953,
+    "recommendationReady" : 784,
+    "ineligibilityReasons" : {
+      "OVERVIEW_MISSING" : 6,
+      "POSTER_MISSING" : 15,
+      "RATING_BELOW_MINIMUM" : 120,
+      "RELEASE_DATE_MISSING" : 2,
+      "RUNTIME_MISSING" : 72
+    }
+  },
+  "after" : {
+    "total" : 964,
+    "recommendationReady" : 793,
+    "ineligibilityReasons" : {
+      "OVERVIEW_MISSING" : 6,
+      "POSTER_MISSING" : 15,
+      "RATING_BELOW_MINIMUM" : 122,
+      "RELEASE_DATE_MISSING" : 2,
+      "RUNTIME_MISSING" : 72
+    }
+  },
+  "entrants" : 9,
+  "exits" : 0,
+  "destructiveRequiredFieldLosses" : 0,
+  "entrantPriorReasons" : { },
+  "exitReasons" : { },
+  "datasetVersion" : "session-intent-catalog-v1",
+  "datasetCatalogSize" : 793,
+  "datasetContentFingerprint" : "d597118da692e5dc2dc777a942651e24a4ae1b7a9364da76ecc03a1e69116f98",
+  "transitions" : [ {
+    "tmdbId" : 176,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 176,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 176,
+      "title" : "Saw",
+      "rating" : 7.428,
+      "runtime" : 103,
+      "releaseDate" : "2004-10-01",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 686,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 686,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 686,
+      "title" : "Contact",
+      "rating" : 7.448,
+      "runtime" : 150,
+      "releaseDate" : "1997-07-11",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 288987,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 288987,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 288987,
+      "title" : "That Malicious Age",
+      "rating" : 6.426,
+      "runtime" : 90,
+      "releaseDate" : "1975-03-11",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 390062,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 390062,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 390062,
+      "title" : "Jungle",
+      "rating" : 6.686,
+      "runtime" : 115,
+      "releaseDate" : "2017-06-27",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 913290,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 913290,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 913290,
+      "title" : "Barbarian",
+      "rating" : 6.875,
+      "runtime" : 103,
+      "releaseDate" : "2022-09-08",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 1124142,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 1124142,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 1124142,
+      "title" : "The Rivals of Amziah King",
+      "rating" : 8.5,
+      "runtime" : 130,
+      "releaseDate" : "2026-08-13",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 1235877,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 1235877,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 1235877,
+      "title" : "Jana Nayagan",
+      "rating" : 5.5,
+      "runtime" : 183,
+      "releaseDate" : "2026-07-22",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 1339588,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 1339588,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 1339588,
+      "title" : "Finding Emily",
+      "rating" : 6.9,
+      "runtime" : 111,
+      "releaseDate" : "2026-05-21",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  }, {
+    "tmdbId" : 1440050,
+    "code" : "ENTER_NEW_MOVIE",
+    "before" : {
+      "tmdbId" : 1440050,
+      "title" : null,
+      "rating" : null,
+      "runtime" : null,
+      "releaseDate" : null,
+      "posterPresent" : false,
+      "overviewPresent" : false,
+      "eligible" : false,
+      "reasons" : [ "NOT_IN_CATALOG" ]
+    },
+    "after" : {
+      "tmdbId" : 1440050,
+      "title" : "The Breadwinner",
+      "rating" : 7.574,
+      "runtime" : 100,
+      "releaseDate" : "2026-05-29",
+      "posterPresent" : true,
+      "overviewPresent" : true,
+      "eligible" : true,
+      "reasons" : [ ]
+    }
+  } ]
+}

@@ -43,6 +43,7 @@ export default function Navbar() {
       // Even if the API fails, the safest UX is to move the user to login.
     }
     router.push("/login");
+    router.refresh();
   };
 
   return (

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-#    branches: ["main"]
+    branches: ["main"]
   pull_request:
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           --health-retries 5
 
     env:
-      SPRING_DATABASE_URL: jdbc:postgresql://localhost:5432/atlaswatch_ci
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/atlaswatch_ci
       SPRING_DATABASE_USERNAME: postgres
       SPRING_DATABASE_PASSWORD: postgres
       REDIS_HOST: localhost
@@ -61,6 +61,11 @@ jobs:
 
       - name: Run backend tests
         run: mvn test
+
+      - name: Verify hermetic evaluation catalog
+        run: mvn -Dtest=HermeticEvaluationInfrastructureTest test
+        env:
+          ATLASWATCH_RUN_HERMETIC_EVALUATION_INFRA: "true"
 
   frontend-check:
     runs-on: ubuntu-latest

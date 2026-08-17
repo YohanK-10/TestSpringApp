@@ -1,0 +1,243 @@
+package com.atlasmind.atlaswatch.repository;
+
+import com.atlasmind.atlaswatch.models.Movie;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface MovieRepository extends JpaRepository<Movie, Long> {
+
+    /**
+     * Find a movie by its TMDB ID.
+     * This is the primary lookup method — when a user requests movie details,
+     * we check "do we already have this movie cached locally?"
+     */
+    Optional<Movie> findByTmdbId(Integer tmdbId);
+
+    List<Movie> findByTmdbIdIn(Collection<Integer> tmdbIds);
+
+    /**
+     * Check if a movie exists by TMDB ID without loading the full entity.
+     * More efficient than findByTmdbId when you only need a yes/no answer.
+     */
+    boolean existsByTmdbId(Integer tmdbId);
+
+    /**
+     * Full-text search against the GIN-indexed tsvector column.
+     *
+     * plainto_tsquery converts a user's plain text input into a tsquery.
+     * For example: "dark knight" → 'dark' & 'knight' (AND search).
+     * This is safer than to_tsquery which requires exact syntax.
+     *
+     * ts_rank scores results by relevance — movies where the search
+     * terms appear in the title rank higher than those where terms
+     * only appear in the overview.
+     *
+     * The @@ operator means "matches the text search query" and is
+     * what triggers PostgreSQL to use the GIN index.
+     */
+    @Query(value = """
+            SELECT * FROM movie
+            WHERE search_vector @@ plainto_tsquery('english', :query)
+            ORDER BY ts_rank(search_vector, plainto_tsquery('english', :query)) DESC
+            LIMIT :limit OFFSET :offset
+            """, nativeQuery = true)
+    List<Movie> searchByFullText(@Param("query") String query,
+                                 @Param("limit") int limit,
+                                 @Param("offset") int offset);
+
+    /**
+     * Count total results for a full-text search (needed for pagination).
+     */
+    @Query(value = """
+            SELECT COUNT(*) FROM movie
+            WHERE search_vector @@ plainto_tsquery('english', :query)
+            """, nativeQuery = true)
+    long countByFullText(@Param("query") String query);
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.popularity IS NOT NULL
+            ORDER BY m.popularity DESC, m.movieRating DESC, m.cachedAt DESC
+            """)
+    List<Movie> findTopPopularMovies(Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.movieRating IS NOT NULL
+            ORDER BY m.movieRating DESC, m.popularity DESC, m.cachedAt DESC
+            """)
+    List<Movie> findTopRatedMovies(Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.popularity IS NOT NULL
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY m.popularity DESC, m.movieRating DESC, m.cachedAt DESC
+            """)
+    List<Movie> findRecommendationReadyPopularMovies(@Param("minimumRating") double minimumRating, Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.id NOT IN :excludedMovieIds
+              AND m.popularity IS NOT NULL
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY m.popularity DESC, m.movieRating DESC, m.cachedAt DESC
+            """)
+    List<Movie> findRecommendationReadyPopularMoviesExcluding(
+            @Param("minimumRating") double minimumRating,
+            @Param("excludedMovieIds") Collection<Long> excludedMovieIds,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY (CASE WHEN CAST(:priorWeight AS Double) <= 0.0 THEN m.movieRating
+                           ELSE ((CAST(COALESCE(m.voteCount, 0) AS Double) * m.movieRating
+                                  + CAST(:priorWeight AS Double) * CAST(:priorMean AS Double))
+                                 / (CAST(COALESCE(m.voteCount, 0) AS Double)
+                                    + CAST(:priorWeight AS Double))) END) DESC,
+                     m.popularity DESC,
+                     m.cachedAt DESC
+            """)
+    List<Movie> findRecommendationReadyTopRatedMovies(
+            @Param("minimumRating") double minimumRating,
+            @Param("priorMean") double priorMean,
+            @Param("priorWeight") double priorWeight,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.id NOT IN :excludedMovieIds
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY (CASE WHEN CAST(:priorWeight AS Double) <= 0.0 THEN m.movieRating
+                           ELSE ((CAST(COALESCE(m.voteCount, 0) AS Double) * m.movieRating
+                                  + CAST(:priorWeight AS Double) * CAST(:priorMean AS Double))
+                                 / (CAST(COALESCE(m.voteCount, 0) AS Double)
+                                    + CAST(:priorWeight AS Double))) END) DESC,
+                     m.popularity DESC,
+                     m.cachedAt DESC
+            """)
+    List<Movie> findRecommendationReadyTopRatedMoviesExcluding(
+            @Param("minimumRating") double minimumRating,
+            @Param("priorMean") double priorMean,
+            @Param("priorWeight") double priorWeight,
+            @Param("excludedMovieIds") Collection<Long> excludedMovieIds,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            """)
+    List<Movie> findRecommendationReadyMovies(@Param("minimumRating") double minimumRating);
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.id NOT IN :excludedMovieIds
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            """)
+    List<Movie> findRecommendationReadyMoviesExcluding(
+            @Param("minimumRating") double minimumRating,
+            @Param("excludedMovieIds") Collection<Long> excludedMovieIds
+    );
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.semanticMetadataSyncedAt IS NULL
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY m.popularity DESC NULLS LAST, m.id ASC
+            """)
+    List<Movie> findRecommendationReadyMoviesMissingSemanticMetadata(
+            @Param("minimumRating") double minimumRating,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT m FROM Movie m
+            WHERE m.semanticMetadataSyncedAt IS NULL
+              AND m.id NOT IN :excludedMovieIds
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            ORDER BY m.popularity DESC NULLS LAST, m.id ASC
+            """)
+    List<Movie> findRecommendationReadyMoviesMissingSemanticMetadataExcluding(
+            @Param("minimumRating") double minimumRating,
+            @Param("excludedMovieIds") Collection<Long> excludedMovieIds,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT COUNT(m) FROM Movie m
+            WHERE m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            """)
+    long countRecommendationReadyMovies(@Param("minimumRating") double minimumRating);
+
+    @Query("""
+            SELECT COUNT(m) FROM Movie m
+            WHERE m.semanticMetadataSyncedAt IS NOT NULL
+              AND m.movieRating IS NOT NULL
+              AND m.movieRating >= :minimumRating
+              AND m.runtime IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.posterPath, ''))) > 0
+              AND m.releaseDate IS NOT NULL
+              AND LENGTH(TRIM(COALESCE(m.overview, ''))) > 0
+            """)
+    long countRecommendationReadyMoviesWithSemanticMetadata(
+            @Param("minimumRating") double minimumRating
+    );
+}
+

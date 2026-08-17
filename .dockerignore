@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.vscode
+.comparison
+.env
+.env.*
+!.env.example
+target
+moviehub-frontend
+docs
+*.pem
+*.log
+**/__pycache__
+**/*.pyc
+

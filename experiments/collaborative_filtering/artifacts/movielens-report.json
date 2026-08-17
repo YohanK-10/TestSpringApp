@@ -1,0 +1,119 @@
+{
+  "generatedAt": "2026-08-16T10:37:00.964335+00:00",
+  "dataset": {
+    "name": "ml-latest-small",
+    "source": "https://files.grouplens.org/datasets/movielens/ml-latest-small.zip",
+    "archiveSha256": "696d65a3dfceac7c45750ad32df2c259311949efec81f0f144fdfb91ebc9e436",
+    "ratings": 100836,
+    "users": 610,
+    "movies": 9724
+  },
+  "dependencies": {
+    "python": "3.11.5",
+    "numpy": "2.2.6",
+    "scipy": "1.17.1",
+    "scikitLearn": "1.9.0"
+  },
+  "methodology": "per-user chronological validation and test positive holdouts",
+  "config": {
+    "positive_threshold": 4.0,
+    "minimum_positive_history": 5,
+    "neighbors_per_item": 30,
+    "profile_limit": 100,
+    "candidate_popularity_limit": 500,
+    "blend_weights": [
+      0.0,
+      0.05,
+      0.1,
+      0.2,
+      0.35,
+      0.5
+    ]
+  },
+  "eligibleUsers": 603,
+  "selectedPopularityWeight": 0.0,
+  "validation": {
+    "0.0": {
+      "users": 603,
+      "hit_rate_at_5": 0.03814262023217247,
+      "hit_rate_at_10": 0.07960199004975124,
+      "mrr_at_10": 0.023593671852378317,
+      "ndcg_at_10": 0.03637678104398321,
+      "catalog_coverage_at_10": 0.11382244340985712
+    },
+    "0.05": {
+      "users": 603,
+      "hit_rate_at_5": 0.03814262023217247,
+      "hit_rate_at_10": 0.0779436152570481,
+      "mrr_at_10": 0.023344915633472848,
+      "ndcg_at_10": 0.03582472701884765,
+      "catalog_coverage_at_10": 0.10884572162465886
+    },
+    "0.1": {
+      "users": 603,
+      "hit_rate_at_5": 0.03814262023217247,
+      "hit_rate_at_10": 0.07960199004975124,
+      "mrr_at_10": 0.023417963094580007,
+      "ndcg_at_10": 0.036223127811968625,
+      "catalog_coverage_at_10": 0.10370846042703484
+    },
+    "0.2": {
+      "users": 603,
+      "hit_rate_at_5": 0.03814262023217247,
+      "hit_rate_at_10": 0.0779436152570481,
+      "mrr_at_10": 0.022770407223143538,
+      "ndcg_at_10": 0.0353456875657198,
+      "catalog_coverage_at_10": 0.09407609568148981
+    },
+    "0.35": {
+      "users": 603,
+      "hit_rate_at_5": 0.03648424543946932,
+      "hit_rate_at_10": 0.0779436152570481,
+      "mrr_at_10": 0.0220550685724815,
+      "ndcg_at_10": 0.03471757654327607,
+      "catalog_coverage_at_10": 0.081072403275004
+    },
+    "0.5": {
+      "users": 603,
+      "hit_rate_at_5": 0.03814262023217247,
+      "hit_rate_at_10": 0.06799336650082918,
+      "mrr_at_10": 0.01924767695911974,
+      "ndcg_at_10": 0.030410266856546287,
+      "catalog_coverage_at_10": 0.05795472788569594
+    }
+  },
+  "test": {
+    "popularity": {
+      "users": 603,
+      "hit_rate_at_5": 0.03150912106135987,
+      "hit_rate_at_10": 0.03814262023217247,
+      "mrr_at_10": 0.014229118955487115,
+      "ndcg_at_10": 0.01995130070020503,
+      "catalog_coverage_at_10": 0.009739741338016925
+    },
+    "collaborative": {
+      "users": 603,
+      "hit_rate_at_5": 0.03648424543946932,
+      "hit_rate_at_10": 0.06799336650082918,
+      "mrr_at_10": 0.019987364763484165,
+      "ndcg_at_10": 0.030983784544065432,
+      "catalog_coverage_at_10": 0.11288519878652403
+    },
+    "hybrid": {
+      "users": 603,
+      "hit_rate_at_5": 0.03648424543946932,
+      "hit_rate_at_10": 0.06799336650082918,
+      "mrr_at_10": 0.019987364763484165,
+      "ndcg_at_10": 0.030983784544065432,
+      "catalog_coverage_at_10": 0.11288519878652403
+    }
+  },
+  "artifact": {
+    "schemaVersion": 1,
+    "mappedTmdbItems": 6293,
+    "totalModelItems": 6298,
+    "tmdbMappingCoverage": 0.9992060971737059,
+    "path": "movielens-item-neighbors.json.gz",
+    "sha256": "90f0b13cc48440a1d7e49d86f800bbeea1822ccdbf6cfdd1878da85dd74bace3"
+  }
+}

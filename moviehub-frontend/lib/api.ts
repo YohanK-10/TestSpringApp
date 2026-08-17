@@ -78,6 +78,90 @@ function normalizeServerMessage(text: string, status: number, statusText: string
   }
 }
 
+interface CsrfResponse {
+  token: string;
+  headerName: string;
+}
+
+let csrfState: CsrfResponse | null = null;
+let csrfRequest: Promise<CsrfResponse> | null = null;
+let refreshRequest: Promise<boolean> | null = null;
+
+async function getCsrfState(forceRefresh = false): Promise<CsrfResponse> {
+  if (forceRefresh) {
+    csrfState = null;
+    csrfRequest = null;
+  }
+  if (csrfState) return csrfState;
+  if (csrfRequest) return csrfRequest;
+
+  csrfRequest = fetch(`${API_BASE}/auth/csrf`, { credentials: "include" })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new ApiError("AtlasWatch could not initialize request security.", {
+          kind: "http",
+          status: response.status,
+        });
+      }
+      const state = (await response.json()) as CsrfResponse;
+      csrfState = state;
+      return state;
+    })
+    .finally(() => {
+      csrfRequest = null;
+    });
+
+  return csrfRequest;
+}
+
+function isMutation(init?: RequestInit) {
+  const method = (init?.method ?? "GET").toUpperCase();
+  return !["GET", "HEAD", "OPTIONS"].includes(method);
+}
+
+async function buildHeaders(init?: RequestInit, forceCsrf = false): Promise<Headers> {
+  const headers = new Headers(init?.headers);
+  if (init?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (isMutation(init)) {
+    const csrf = await getCsrfState(forceCsrf);
+    headers.set(csrf.headerName, csrf.token);
+  }
+  return headers;
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (refreshRequest) return refreshRequest;
+
+  refreshRequest = (async () => {
+    try {
+      const headers = await buildHeaders({ method: "POST" });
+      let response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers,
+      });
+
+      if (response.status === 403) {
+        const retryHeaders = await buildHeaders({ method: "POST" }, true);
+        response = await fetch(`${API_BASE}/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+          headers: retryHeaders,
+        });
+      }
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      refreshRequest = null;
+    }
+  })();
+
+  return refreshRequest;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!API_BASE) {
     throw new ApiError(
@@ -88,14 +172,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
 
   try {
+    const headers = await buildHeaders(init);
     response = await fetch(`${API_BASE}${path}`, {
       credentials: "include",
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...init?.headers,
-      },
+      headers,
     });
+
+    // Spring Security rotates the CSRF token after a successful login. The
+    // client may still have the pre-login token cached, so retry a rejected
+    // mutation once with a freshly issued token. A genuine authorization
+    // failure remains a 403 after this single retry.
+    if (response.status === 403 && isMutation(init)) {
+      response = await fetch(`${API_BASE}${path}`, {
+        credentials: "include",
+        ...init,
+        headers: await buildHeaders(init, true),
+      });
+    }
+
+    const canRefresh = response.status === 401 && !path.startsWith("/auth/");
+    if (canRefresh && await refreshAccessToken()) {
+      response = await fetch(`${API_BASE}${path}`, {
+        credentials: "include",
+        ...init,
+        headers: await buildHeaders(init),
+      });
+    }
   } catch (error) {
     throw new ApiError("We couldn't reach the AtlasWatch API. Check your connection and try again.", {
       kind: "network",
@@ -203,9 +306,17 @@ export function getColdStartRecommendations(body: RecommendationRequest) {
   if (body.runtimePreference) {
     params.set("runtimePreference", body.runtimePreference);
   }
+  body.releaseEras?.forEach((era) => params.append("releaseEras", era));
   if (body.limit) {
     params.set("limit", String(body.limit));
   }
+  if (body.refreshToken) {
+    params.set("refreshToken", body.refreshToken);
+  }
+  body.starterGenres?.forEach((genre) => params.append("starterGenres", genre));
+  body.starterKeywords?.forEach((keyword) => params.append("starterKeywords", keyword));
+  body.seedTmdbIds?.forEach((tmdbId) => params.append("seedTmdbIds", String(tmdbId)));
+  body.seenTmdbIds?.forEach((tmdbId) => params.append("seenTmdbIds", String(tmdbId)));
 
   const query = params.toString();
   return request<RecommendationResponse[]>(

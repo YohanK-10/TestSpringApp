@@ -1,0 +1,40 @@
+{
+  "generatedAt": "2026-08-16T11:02:51.891995+00:00",
+  "evidenceStatus": "development-only-not-for-resume-or-promotion",
+  "methodology": "Latest Small temporal test reused only to screen latent-factor challengers",
+  "eligibleUsers": 603,
+  "itemKnn30": {
+    "users": 603,
+    "hit_rate_at_5": 0.03648424543946932,
+    "hit_rate_at_10": 0.06799336650082918,
+    "mrr_at_10": 0.019987364763484165,
+    "ndcg_at_10": 0.030983784544065432,
+    "catalog_coverage_at_10": 0.11288519878652403
+  },
+  "latentFactors": {
+    "16": {
+      "users": 603,
+      "hit_rate_at_5": 0.04311774461028192,
+      "hit_rate_at_10": 0.06633499170812604,
+      "mrr_at_10": 0.023499565663744768,
+      "ndcg_at_10": 0.0334415027925086,
+      "catalog_coverage_at_10": 0.053808079195273834
+    },
+    "32": {
+      "users": 603,
+      "hit_rate_at_5": 0.03814262023217247,
+      "hit_rate_at_10": 0.07131011608623548,
+      "mrr_at_10": 0.024718997604569744,
+      "ndcg_at_10": 0.03546907781276679,
+      "catalog_coverage_at_10": 0.0710522114002874
+    },
+    "64": {
+      "users": 603,
+      "hit_rate_at_5": 0.04809286898839138,
+      "hit_rate_at_10": 0.0779436152570481,
+      "mrr_at_10": 0.02794887993892968,
+      "ndcg_at_10": 0.0394443897180889,
+      "catalog_coverage_at_10": 0.09228804087498003
+    }
+  }
+}

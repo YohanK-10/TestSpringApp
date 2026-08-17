@@ -1,0 +1,53 @@
+{
+  "generatedAt": "2026-08-16T10:57:12.592529+00:00",
+  "auditStatus": "independent-frozen-configuration",
+  "dataset": {
+    "name": "MovieLens 100K",
+    "source": "https://files.grouplens.org/datasets/movielens/ml-100k.zip",
+    "archiveSha256": "50d2a982c66986937beb9ffb3aa76efe955bf3d5c6b761f4e3a7cd717c6a3229",
+    "ratings": 100000,
+    "users": 943,
+    "movies": 1682
+  },
+  "dependencies": {
+    "python": "3.11.5",
+    "numpy": "2.2.6",
+    "scipy": "1.17.1",
+    "scikitLearn": "1.9.0"
+  },
+  "methodology": "one final positive holdout per eligible user; all settings frozen before audit",
+  "frozenConfig": {
+    "positiveThreshold": 4.0,
+    "minimumPositiveHistory": 5,
+    "neighborsPerItem": 30,
+    "profileLimit": 100,
+    "candidatePopularityLimit": 500,
+    "popularityWeight": 0.0
+  },
+  "eligibleUsers": 938,
+  "test": {
+    "popularity": {
+      "users": 938,
+      "hit_rate_at_5": 0.03304904051172708,
+      "hit_rate_at_10": 0.05863539445628998,
+      "mrr_at_10": 0.01998806985480759,
+      "ndcg_at_10": 0.028870871805892484,
+      "catalog_coverage_at_10": 0.044755244755244755
+    },
+    "collaborative": {
+      "users": 938,
+      "hit_rate_at_5": 0.046908315565031986,
+      "hit_rate_at_10": 0.07889125799573561,
+      "mrr_at_10": 0.027466832504145933,
+      "ndcg_at_10": 0.0393632909371742,
+      "catalog_coverage_at_10": 0.15314685314685314
+    }
+  },
+  "relativeLift": {
+    "hitRateAt5": 0.4193548387096775,
+    "hitRateAt10": 0.3454545454545455,
+    "mrrAt10": 0.3741613224120051,
+    "ndcgAt10": 0.3634257808986647,
+    "catalogCoverageAt10": 2.421875
+  }
+}

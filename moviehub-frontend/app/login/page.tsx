@@ -76,6 +76,7 @@ export default function LoginPage() {
         try {
             await login(formData.loginInfo, formData.password);
             router.push("/homepage")
+            router.refresh()
         } catch (err) {
             setError(getLoginErrorMessage(err));
         }

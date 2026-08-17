@@ -11,6 +11,12 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SPRING_DATABASE_USERNAME} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     networks:
       - atlasNetwork
 
@@ -22,6 +28,11 @@ services:
       - "${REDIS_PORT}:${REDIS_PORT}"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - atlasNetwork
 
@@ -32,25 +43,43 @@ services:
     container_name: atlaswatch_backend
     restart: always
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/${DB_NAME}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATABASE_USERNAME}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATABASE_PASSWORD}
       MAIL_HOST: ${MAIL_HOST}
       EMAIL: ${EMAIL}
       EMAIL_PASSWORD: ${EMAIL_PASSWORD}
-      EXPIRATION_TIME_FOR_REFRESH_TOKEN: 86400000
+      EXPIRATION_TIME_FOR_REFRESH_TOKEN: ${EXPIRATION_TIME_FOR_REFRESH_TOKEN}
       CLIENT_ID: ${CLIENT_ID}
       CLIENT_SECRET: ${CLIENT_SECRET}
-      PUBLIC_KEY: ${PUBLIC_KEY}
-      PRIVATE_KEY: ${PRIVATE_KEY}
-      REDIS_HOST: ${REDIS_HOST}
+      PUBLIC_KEY: ${PUBLIC_KEY:-}
+      PRIVATE_KEY: ${PRIVATE_KEY:-}
+      PUBLIC_KEY_PATH: /run/secrets/jwt-public.pem
+      PRIVATE_KEY_PATH: /run/secrets/jwt-private.pem
+      REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT}
       TMDB_API_TOKEN: ${TMDB_API_TOKEN}
+      ATLASWATCH_ALLOWED_ORIGIN_PATTERNS: ${ATLASWATCH_ALLOWED_ORIGIN_PATTERNS:-http://localhost:3000}
+      ATLASWATCH_METADATA_BACKFILL_RUN_ON_STARTUP: ${ATLASWATCH_METADATA_BACKFILL_RUN_ON_STARTUP:-false}
+      ATLASWATCH_METADATA_BACKFILL_BATCH_SIZE: ${ATLASWATCH_METADATA_BACKFILL_BATCH_SIZE:-100}
+      ATLASWATCH_METADATA_BACKFILL_MAX_ITEMS: ${ATLASWATCH_METADATA_BACKFILL_MAX_ITEMS:-0}
+      ATLASWATCH_METADATA_BACKFILL_RATE_LIMIT_MS: ${ATLASWATCH_METADATA_BACKFILL_RATE_LIMIT_MS:-100}
     ports:
       - "8080:8080"
+    volumes:
+      - ./jwt-public.pem:/run/secrets/jwt-public.pem:ro
+      - ./jwt-private.pem:/run/secrets/jwt-private.pem:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - atlasNetwork
 
@@ -63,9 +92,16 @@ services:
     container_name: atlaswatch_frontend
     restart: always
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3000/homepage"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     networks:
       - atlasNetwork
 
